@@ -162,17 +162,11 @@ fn byte_sixteen_and_register_mode_far_calls_are_rejected_before_data_access() {
     image.data(0x3ffe, &code);
     assert_eq!(
         compile_block_from_bytes(0x1ffe, &code, 1).err(),
-        Some(BlockError::UnsupportedInstruction {
-            address: 0x1ffe,
-            opcode: 0xff
-        })
+        Some(BlockError::UnsupportedInstruction { address: 0x1ffe })
     );
     image.check_unchanged_exit(
         TestModule::interpreter(),
         "far CALL rejects a register operand",
-        Exit::UnsupportedInstruction {
-            eip: 0x1ffe,
-            opcode: 0xff,
-        },
+        Exit::UnsupportedInstruction { eip: 0x1ffe },
     );
 }

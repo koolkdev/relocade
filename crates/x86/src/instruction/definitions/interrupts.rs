@@ -5,12 +5,12 @@ use crate::{flags::Flag, ExceptionVector, ExecutionProfile};
 
 instruction_families! {
     INT {
-        execute: interrupt(0xcd);
+        execute: interrupt;
         effects: [control_transfer];
         forms { 0xCD => byte(imm8); }
     }
     INT3 {
-        execute: interrupt(0xcc);
+        execute: interrupt;
         effects: [control_transfer];
         forms { 0xCC => byte(constant(ExceptionVector::Breakpoint as u32)); }
     }
@@ -26,11 +26,10 @@ fn interrupt(
     vector: Input<I8>,
     _condition: Option<Condition>,
     fallthrough: Val<I32>,
-    opcode: u8,
 ) -> Result<Val<I32>, BuildError> {
     match execution.profile() {
         ExecutionProfile::Protected(_) => {
-            execution.unsupported(u32::from(opcode))?;
+            execution.unsupported()?;
             Ok(fallthrough)
         }
         ExecutionProfile::Real16 => {
@@ -46,7 +45,7 @@ fn overflow_interrupt(
     fallthrough: Val<I32>,
 ) -> Result<Val<I32>, BuildError> {
     match execution.profile() {
-        ExecutionProfile::Protected(_) => execution.unsupported(0xce)?,
+        ExecutionProfile::Protected(_) => execution.unsupported()?,
         ExecutionProfile::Real16 => {
             let overflow = execution.read_flag(Flag::OF)?;
             execution.enter_interrupt_if(

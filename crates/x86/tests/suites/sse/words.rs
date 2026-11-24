@@ -106,6 +106,6 @@ test_frontends!(simd_word_transfers_in_16_bit_code, segmented);
 #[test]
 fn simd_word_extraction_rejects_memory() {
     for code in [&[0x0f, 0xc5, 0x04][..], &[0x66, 0x0f, 0xc5, 0x04]] {
-        crate::support::encoding::check_unsupported_at_page_end(code, 0x0f);
+        crate::support::encoding::check_unsupported_at_page_end(code);
     }
 }

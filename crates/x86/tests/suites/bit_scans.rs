@@ -146,18 +146,12 @@ fn f3_prefixed_count_instructions_are_not_accepted_as_bit_scans() {
         let code = [0xf3, 0x0f, opcode, 0x03];
         assert!(matches!(
             compile_block_from_bytes(0x1000, &code, 1),
-            Err(BlockError::UnsupportedInstruction {
-                address: 0x1000,
-                opcode: 0xf3
-            })
+            Err(BlockError::UnsupportedInstruction { address: 0x1000 })
         ));
         Image::new(&code).check_unchanged_exit(
             TestModule::interpreter(),
             "F3 count encoding is rejected before its unmapped source",
-            Exit::UnsupportedInstruction {
-                eip: 0x1000,
-                opcode: 0xf3,
-            },
+            Exit::UnsupportedInstruction { eip: 0x1000 },
         );
     }
 }

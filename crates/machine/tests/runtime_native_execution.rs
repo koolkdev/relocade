@@ -134,10 +134,7 @@ fn guest_exits_preserve_progress_and_live_code_can_be_replaced() {
         .unwrap(); // INC AX; unsupported INT1
     assert_eq!(
         pollster::block_on(runtime.run()),
-        ExecutionExit::UnsupportedInstruction {
-            eip: 0x102,
-            opcode: 0xf1
-        }
+        ExecutionExit::UnsupportedInstruction { eip: 0x102 }
     );
     assert_eq!(
         (

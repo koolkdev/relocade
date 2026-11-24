@@ -27,7 +27,7 @@ pub(crate) use stack::{StackAccess, StackPointer};
 pub(crate) use strings::{ResolvedStrings, StringOperand};
 pub(crate) use x87::{X87MemoryFormat, X87Operand, X87Operands};
 
-use relocade_compiler::{BlockBuilder, BuildError, Func, TypedFunc, Val, I1, I16, I32, I64, I8};
+use relocade_compiler::{BlockBuilder, BuildError, Func, TypedFunc, Val, I1, I16, I32, I64};
 use std::collections::BTreeMap;
 
 use crate::flags::{Condition, Flag, FlagChange};
@@ -257,8 +257,8 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
     }
 
     /// Stops unsupported execution at the current instruction's restart boundary.
-    pub(crate) fn unsupported(&mut self, opcode: impl Into<Val<I8>>) -> Result<(), BuildError> {
-        self.unsupported_if(true, opcode)
+    pub(crate) fn unsupported(&mut self) -> Result<(), BuildError> {
+        self.unsupported_if(true)
     }
 
     /// Stops an unsupported execution path without retiring the instruction.
@@ -267,11 +267,10 @@ impl<'body, 'module> ExecutionBuilder<'body, 'module> {
     pub(crate) fn unsupported_if(
         &mut self,
         condition: impl Into<Val<I1>>,
-        opcode: impl Into<Val<I8>>,
     ) -> Result<(), BuildError> {
         self.body.if_(condition, |mut body| {
             self.state.publish(&mut body, &self.eip, self.completed)?;
-            exit::unsupported(body, &self.eip, opcode)
+            exit::unsupported(body, &self.eip)
         })
     }
 

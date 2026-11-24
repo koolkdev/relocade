@@ -132,17 +132,11 @@ fn ff_group_five_rejects_register_mode_before_source_access() {
     image.data(0x3ffe, &code);
     assert_eq!(
         compile_block_from_bytes(0x1ffe, &code, 1).err(),
-        Some(BlockError::UnsupportedInstruction {
-            address: 0x1ffe,
-            opcode: 0xff
-        })
+        Some(BlockError::UnsupportedInstruction { address: 0x1ffe })
     );
     image.check_unchanged_exit(
         TestModule::interpreter(),
         "far JMP rejects a register operand",
-        Exit::UnsupportedInstruction {
-            eip: 0x1ffe,
-            opcode: 0xff,
-        },
+        Exit::UnsupportedInstruction { eip: 0x1ffe },
     );
 }

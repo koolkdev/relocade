@@ -134,12 +134,8 @@ pub enum BlockError {
         address: u32,
     },
     /// The selected encoding is outside the supported instruction subset.
-    /// `opcode` is the first byte after size and segment prefixes; other fields may
-    /// select an unsupported form. Extended opcodes report `0F`; an unsupported
-    /// form after `F0`, `F2` or `F3` reports the selected prefix.
     UnsupportedInstruction {
         address: u32,
-        opcode: u8,
     },
     Compiler(relocade_compiler::BuildError),
 }
@@ -181,11 +177,8 @@ impl fmt::Display for BlockError {
                     "instruction at {address:#x} exceeds fifteen bytes"
                 )
             }
-            Self::UnsupportedInstruction { address, opcode } => {
-                write!(
-                    formatter,
-                    "unsupported instruction at {address:#x} (opcode {opcode:#04x})"
-                )
+            Self::UnsupportedInstruction { address } => {
+                write!(formatter, "unsupported instruction at {address:#x}")
             }
             Self::Compiler(error) => error.fmt(formatter),
         }

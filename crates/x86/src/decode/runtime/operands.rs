@@ -11,6 +11,7 @@ use crate::{
         OperandEncoding, OperandSize, PrefixState, ResolvedForm,
     },
     register::{RegisterCode, RegisterSelector},
+    state::exit,
 };
 
 use super::{cursor::RuntimeCursor, selectors::dispatch_modrm_form, InstructionDecoder};
@@ -109,11 +110,10 @@ where
         forms: &[&'static Form],
     ) -> Result<(), BuildError> {
         let modrm = cursor.byte(&mut body)?;
-        let opcode_value = body.value::<I8>(u32::from(opcode))?;
         let memory_forms = memory_forms(&state);
         dispatch_modrm_form(body, &modrm, forms, &state, &|mut arm, form| {
             let Some(form) = form else {
-                return state.return_unsupported(arm, &cursor, &opcode_value);
+                return exit::unsupported(arm, cursor.instruction_eip());
             };
             if form.accepts_memory_rm() {
                 let form_index = memory_forms
@@ -134,7 +134,7 @@ where
                 })?;
             }
             if !form.accepts_register_rm(&state.prefixes) {
-                return state.return_unsupported(arm, &cursor, &opcode_value);
+                return exit::unsupported(arm, cursor.instruction_eip());
             }
             let rm = Location::Register(
                 RegisterSelector::Runtime(modrm.unsigned().extend::<I32>()).into(),

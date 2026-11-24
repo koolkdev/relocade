@@ -6,9 +6,7 @@ pub(super) use runtime::RuntimeDecoder;
 pub(super) use snapshot::snapshot;
 pub use snapshot::SnapshotInstruction;
 
-use crate::instruction::{
-    opcode_forms, Form, OpcodeMap, Prefix, PrefixState, EXTENDED_OPCODE_ESCAPE,
-};
+use crate::instruction::{opcode_forms, Form, OpcodeMap, Prefix, PrefixState};
 
 /// Form selection and opcode-map routing, independent of byte-fetch state.
 #[derive(Clone, Default)]
@@ -37,15 +35,5 @@ impl DecodeState {
             ..self.clone()
         };
         extended.forms().next().map(|_| extended)
-    }
-
-    fn unsupported_opcode_override(&self) -> Option<u8> {
-        if let Some(prefix) = self.prefixes.selection().group1() {
-            Some(prefix.byte())
-        } else if self.map == OpcodeMap::Extended {
-            Some(EXTENDED_OPCODE_ESCAPE)
-        } else {
-            None
-        }
     }
 }

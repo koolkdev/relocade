@@ -14,10 +14,7 @@ fn decode_errors_reject_roots_and_preserve_valid_prefixes_and_sibling_paths() {
         ),
         (
             &[0xf1, 0x90, 0xc3],
-            BlockError::UnsupportedInstruction {
-                address: START,
-                opcode: 0xf1,
-            },
+            BlockError::UnsupportedInstruction { address: START },
         ),
         (
             &[0x66; 16],

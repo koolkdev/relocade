@@ -15,7 +15,6 @@ use relocade_compiler::{
 use crate::{
     execution::ExecutionModule,
     instruction::{DecodedInstruction, OpcodeMap},
-    state::exit,
 };
 
 use super::DecodeState;
@@ -242,20 +241,5 @@ impl RuntimeDecoder {
             &[(&opcode).into()],
             &code_default_is_32_bit,
         )
-    }
-}
-
-impl DecodeState {
-    fn return_unsupported(
-        &self,
-        body: BlockBuilder<'_>,
-        cursor: &RuntimeCursor<'_>,
-        selector: &Val<I8>,
-    ) -> Result<(), BuildError> {
-        let opcode = match self.unsupported_opcode_override() {
-            Some(opcode) => body.value::<I8>(u32::from(opcode))?,
-            None => selector.clone(),
-        };
-        exit::unsupported(body, cursor.instruction_eip(), &opcode)
     }
 }

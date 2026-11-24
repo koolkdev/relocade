@@ -64,10 +64,7 @@ test_frontends!(mmx_xmm_transfers, transfers);
 fn mmx_xmm_transfers_reject_memory_before_fetching_address_bytes() {
     for prefix in [0xf2, 0xf3] {
         for modrm in [0x00, 0x04, 0x40, 0x80] {
-            crate::support::encoding::check_unsupported_at_page_end(
-                &[prefix, 0x0f, 0xd6, modrm],
-                prefix,
-            );
+            crate::support::encoding::check_unsupported_at_page_end(&[prefix, 0x0f, 0xd6, modrm]);
         }
     }
 }

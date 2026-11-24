@@ -350,13 +350,9 @@ fn unavailable_lock_forms_reject_before_unused_operand_fields() {
         &[0x0f, 0xc7, 0xc8],
     ] {
         let origin = 0x2000 - code.len() as u32;
-        let diagnostic = code[0];
         assert_eq!(
             compile_block_from_bytes(origin, code, 1).err(),
-            Some(BlockError::UnsupportedInstruction {
-                address: origin,
-                opcode: diagnostic
-            })
+            Some(BlockError::UnsupportedInstruction { address: origin })
         );
         let mut image = Image::empty();
         image.cpu.eip = origin;
@@ -365,10 +361,7 @@ fn unavailable_lock_forms_reject_before_unused_operand_fields() {
         image.check_unchanged_exit(
             TestModule::interpreter(),
             &format!("rejected form stops before unused fields: {code:02x?}"),
-            Exit::UnsupportedInstruction {
-                eip: origin,
-                opcode: diagnostic,
-            },
+            Exit::UnsupportedInstruction { eip: origin },
         );
     }
 }

@@ -173,6 +173,6 @@ fn masked_stores_require_two_registers() {
     for bytes in [8, 16] {
         let mut code = code(bytes);
         *code.last_mut().unwrap() = 0x34; // memory/SIB is rejected before fetching a SIB
-        check_unsupported_at_page_end(&code, 0x0f);
+        check_unsupported_at_page_end(&code);
     }
 }

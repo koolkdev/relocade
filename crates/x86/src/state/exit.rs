@@ -1,5 +1,5 @@
 use crate::exception::{Exception, ExceptionValues};
-use relocade_compiler::{BlockBuilder, BuildError, Val, I32, I8};
+use relocade_compiler::{BlockBuilder, BuildError, Val, I32};
 
 /// A return from a generated execution entry.
 ///
@@ -21,7 +21,8 @@ pub enum ExecutionExit {
     /// other faults and failures during entry itself return this result.
     Exception(Exception),
     /// An encoding or execution path outside the implemented instruction subset.
-    UnsupportedInstruction { eip: u32, opcode: u8 },
+    /// EIP points to the start of the instruction, including any prefixes.
+    UnsupportedInstruction { eip: u32 },
     /// Interrupt or exception entry completed without retiring an instruction.
     /// CPU state identifies the ISR; the caller may now dispatch guest execution.
     InterruptEntered,
@@ -88,14 +89,8 @@ pub(crate) fn exception(
     body.return_(ExecutionExitValues::exception(exception))
 }
 
-pub(crate) fn unsupported(
-    body: BlockBuilder<'_>,
-    address: &Val<I32>,
-    opcode: impl Into<Val<I8>>,
-) -> Result<(), BuildError> {
-    body.return_(ExecutionExitValues::unsupported_instruction(
-        address, opcode,
-    ))
+pub(crate) fn unsupported(body: BlockBuilder<'_>, eip: &Val<I32>) -> Result<(), BuildError> {
+    body.return_(ExecutionExitValues::unsupported_instruction(eip))
 }
 
 #[cfg(test)]

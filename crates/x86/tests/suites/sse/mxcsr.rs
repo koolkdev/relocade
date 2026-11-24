@@ -6,15 +6,12 @@ use relocade_x86::{compile_block_from_bytes, BlockError};
 
 #[test]
 fn sse_mxcsr_rejected_prefixes() {
-    for (prefix, diagnostic) in [(0x66, 0x0f), (0xf2, 0xf2), (0xf3, 0xf3), (0xf0, 0xf0)] {
+    for prefix in [0x66, 0xf2, 0xf3, 0xf0] {
         for modrm in [0x10, 0x18] {
             let code = [prefix, 0x0f, 0xae, modrm];
             assert_eq!(
                 compile_block_from_bytes(0x1000, &code, 1).err(),
-                Some(BlockError::UnsupportedInstruction {
-                    address: 0x1000,
-                    opcode: diagnostic,
-                }),
+                Some(BlockError::UnsupportedInstruction { address: 0x1000 }),
                 "MXCSR rejects prefix {prefix:02x}, ModRM {modrm:02x}",
             );
             let mut image = image(&code);
@@ -22,10 +19,7 @@ fn sse_mxcsr_rejected_prefixes() {
             image.check_unchanged_exit(
                 TestModule::interpreter(),
                 &format!("MXCSR rejects prefix {prefix:02x}, ModRM {modrm:02x}"),
-                Exit::UnsupportedInstruction {
-                    eip: 0x1000,
-                    opcode: diagnostic,
-                },
+                Exit::UnsupportedInstruction { eip: 0x1000 },
             );
         }
     }

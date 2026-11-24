@@ -96,7 +96,7 @@ fn register_only_modrm_forms_are_unsupported_without_extra_fetches() {
     ] {
         assert!(matches!(
             compile_block_from_bytes(start, code, 1),
-            Err(BlockError::UnsupportedInstruction { address, opcode: 0x8d }) if address == start
+            Err(BlockError::UnsupportedInstruction { address }) if address == start
         ));
         let mut image = Image::new(&[]);
         image.cpu.eip = start;
@@ -104,10 +104,7 @@ fn register_only_modrm_forms_are_unsupported_without_extra_fetches() {
         image.check_unchanged_exit(
             TestModule::interpreter(),
             "LEA rejects mod=3 at the final mapped byte",
-            Exit::UnsupportedInstruction {
-                eip: start,
-                opcode: 0x8d,
-            },
+            Exit::UnsupportedInstruction { eip: start },
         );
     }
 }

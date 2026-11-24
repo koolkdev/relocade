@@ -256,10 +256,7 @@ fn missing_instruction_bytes_and_unsupported_opcodes_preserve_entry_state() {
             0x1fff,
             vec![(0x3fff, vec![0xf1])],
             vec![(4, vec![1, 0x30, 0, 0])],
-            Exit::UnsupportedInstruction {
-                eip: 0x1fff,
-                opcode: 0xf1,
-            },
+            Exit::UnsupportedInstruction { eip: 0x1fff },
         ),
         (
             "address prefix needs the next code page",

@@ -126,7 +126,7 @@ pub(crate) enum Exit {
     StackFault { error: u32 },
     PageFault { address: u32, error: u32 },
     SegmentNotPresent { error: u32 },
-    UnsupportedInstruction { eip: u32, opcode: u8 },
+    UnsupportedInstruction { eip: u32 },
     Other(ExecutionExit),
 }
 
@@ -154,9 +154,7 @@ impl Exit {
                     Self::SegmentNotPresent { error: error_code }
                 }
             },
-            ExecutionExit::UnsupportedInstruction { eip, opcode } => {
-                Self::UnsupportedInstruction { eip, opcode }
-            }
+            ExecutionExit::UnsupportedInstruction { eip } => Self::UnsupportedInstruction { eip },
             _ => Self::Other(exit),
         }
     }
@@ -222,9 +220,7 @@ pub(crate) fn expected(image: &Image, steps: &[Step<'_>]) -> Observation {
                 linear_address: address,
                 error_code: error,
             }),
-            Exit::UnsupportedInstruction { eip, opcode } => {
-                ExecutionExit::UnsupportedInstruction { eip, opcode }
-            }
+            Exit::UnsupportedInstruction { eip } => ExecutionExit::UnsupportedInstruction { eip },
             Exit::Other(exit) => exit,
         };
         events.push(Event::Return {

@@ -206,7 +206,7 @@ fn unsupported_groups_stop_before_address_or_count_bytes() {
         let code = [opcode, 0x34]; // Unsupported /6, missing SIB and possibly an immediate.
         assert!(matches!(
             compile_block_from_bytes(0x1ffe, &code, 1),
-            Err(BlockError::UnsupportedInstruction { address: 0x1ffe, opcode: actual }) if actual == opcode
+            Err(BlockError::UnsupportedInstruction { address: 0x1ffe })
         ));
         let mut image = Image::new(&[]);
         image.cpu.eip = 0x1ffe;
@@ -214,10 +214,7 @@ fn unsupported_groups_stop_before_address_or_count_bytes() {
         image.check_unchanged_exit(
             TestModule::interpreter(),
             "undocumented group six remains unsupported",
-            Exit::UnsupportedInstruction {
-                eip: 0x1ffe,
-                opcode,
-            },
+            Exit::UnsupportedInstruction { eip: 0x1ffe },
         );
     }
 }

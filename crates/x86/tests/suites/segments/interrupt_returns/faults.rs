@@ -211,10 +211,7 @@ fn entry_nt_reports_unsupported_before_stack_checks_without_retiring() {
                 Step {
                     cpu: image.cpu,
                     ram: &[],
-                    exit: Exit::UnsupportedInstruction {
-                        eip: 0x1000,
-                        opcode: 0xcf,
-                    },
+                    exit: Exit::UnsupportedInstruction { eip: 0x1000 },
                 },
             );
         }

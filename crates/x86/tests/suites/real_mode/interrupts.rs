@@ -404,11 +404,7 @@ fn protected_modes(frontend: Frontend) {
         SegmentProfile::Segmented16,
     ] {
         let mut cases = ImageSequences::new(frontend, profile);
-        for (code, opcode) in [
-            (&[0xcd, 0x21][..], 0xcd_u64),
-            (&[0xcc][..], 0xcc),
-            (&[0xce][..], 0xce),
-        ] {
+        for code in [&[0xcd, 0x21][..], &[0xcc], &[0xce]] {
             let mut image = Image::new(code);
             if profile == SegmentProfile::Segmented16 {
                 image.cpu.segments.cs.big = 0;
@@ -420,10 +416,7 @@ fn protected_modes(frontend: Frontend) {
                 &[Step {
                     cpu: image.cpu,
                     ram: &[],
-                    exit: Exit::UnsupportedInstruction {
-                        eip: 0x1000,
-                        opcode: opcode as u8,
-                    },
+                    exit: Exit::UnsupportedInstruction { eip: 0x1000 },
                 }],
             );
         }

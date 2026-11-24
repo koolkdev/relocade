@@ -106,10 +106,7 @@ fn prefixes_cross_pages_and_reset_after_memory_continuation() {
             &[Step {
                 cpu,
                 ram: &[],
-                exit: Exit::UnsupportedInstruction {
-                    eip: cpu.eip,
-                    opcode: 0xf1,
-                },
+                exit: Exit::UnsupportedInstruction { eip: cpu.eip },
             }],
         );
     }

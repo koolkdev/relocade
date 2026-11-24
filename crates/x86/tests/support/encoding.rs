@@ -5,7 +5,7 @@ use wasmparser::Validator;
 
 /// Rejects an invalid form before either decoder requests unavailable trailing bytes.
 #[track_caller]
-pub(crate) fn check_unsupported_at_page_end(code: &[u8], opcode: u8) {
+pub(crate) fn check_unsupported_at_page_end(code: &[u8]) {
     use super::{
         machine::{Exit, Image},
         step::TestModule,
@@ -13,7 +13,7 @@ pub(crate) fn check_unsupported_at_page_end(code: &[u8], opcode: u8) {
     let address = 0x2000 - code.len() as u32;
     assert_eq!(
         compile_block_from_bytes(address, code, 1).err(),
-        Some(BlockError::UnsupportedInstruction { address, opcode }),
+        Some(BlockError::UnsupportedInstruction { address }),
     );
     let mut image = Image::new(&[]);
     image.cpu.eip = address;
@@ -21,10 +21,7 @@ pub(crate) fn check_unsupported_at_page_end(code: &[u8], opcode: u8) {
     image.check_unchanged_exit(
         TestModule::interpreter(),
         "invalid form is rejected before fetching trailing bytes",
-        Exit::UnsupportedInstruction {
-            eip: address,
-            opcode,
-        },
+        Exit::UnsupportedInstruction { eip: address },
     );
 }
 

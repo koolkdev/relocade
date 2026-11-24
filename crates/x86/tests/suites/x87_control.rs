@@ -468,10 +468,7 @@ fn controls_reject_other_modrm_forms_and_lock_prefixes() {
         let origin = 0x2000 - code.len() as u32;
         assert_eq!(
             compile_block_from_bytes(origin, code, 1).err(),
-            Some(BlockError::UnsupportedInstruction {
-                address: origin,
-                opcode: code[0]
-            }),
+            Some(BlockError::UnsupportedInstruction { address: origin }),
         );
         let mut image = initial_image(&[]);
         image.cpu.eip = origin;
@@ -479,10 +476,7 @@ fn controls_reject_other_modrm_forms_and_lock_prefixes() {
         image.check_unchanged_exit(
             TestModule::interpreter(),
             &format!("unselected x87 form {code:02x?}"),
-            Exit::UnsupportedInstruction {
-                eip: origin,
-                opcode: code[0],
-            },
+            Exit::UnsupportedInstruction { eip: origin },
         );
     }
 }

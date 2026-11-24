@@ -130,10 +130,7 @@ fn register_operands_are_rejected_without_a_successor_fetch() {
         let start = 0x2000 - code.len() as u32;
         assert_eq!(
             compile_block_from_bytes(start, code, 1).err(),
-            Some(BlockError::UnsupportedInstruction {
-                address: start,
-                opcode: 0x62
-            })
+            Some(BlockError::UnsupportedInstruction { address: start })
         );
         let mut image = Image::new(&[]);
         image.cpu.eip = start;
@@ -141,10 +138,7 @@ fn register_operands_are_rejected_without_a_successor_fetch() {
         image.check_unchanged_exit(
             TestModule::interpreter(),
             "BOUND requires a memory pair",
-            Exit::UnsupportedInstruction {
-                eip: start,
-                opcode: 0x62,
-            },
+            Exit::UnsupportedInstruction { eip: start },
         );
     }
 }

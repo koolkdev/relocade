@@ -38,7 +38,7 @@ fn sse_byte_shifts_reject_memory_and_mmx_forms() {
         &[0x0f, 0x73, 0xf8],
         &[0x0f, 0x73, 0xd8],
     ] {
-        crate::support::encoding::check_unsupported_at_page_end(code, 0x0f);
+        crate::support::encoding::check_unsupported_at_page_end(code);
     }
 }
 

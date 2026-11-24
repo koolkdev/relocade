@@ -273,10 +273,7 @@ fn unsupported_group_extensions_stop_before_sib_or_displacement_fetch() {
         let start = 0x2000 - code.len() as u32;
         assert_eq!(
             compile_block_from_bytes(start, &code, 1).err(),
-            Some(BlockError::UnsupportedInstruction {
-                address: start,
-                opcode
-            }),
+            Some(BlockError::UnsupportedInstruction { address: start }),
         );
         let mut image = Image::new(&[]);
         image.cpu.flags.status_source.kind = 0xff;
@@ -285,7 +282,7 @@ fn unsupported_group_extensions_stop_before_sib_or_displacement_fetch() {
         image.check_unchanged_exit(
             TestModule::interpreter(),
             "unsupported extension precedes address fields",
-            Exit::UnsupportedInstruction { eip: start, opcode },
+            Exit::UnsupportedInstruction { eip: start },
         );
     }
 }
