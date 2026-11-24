@@ -163,6 +163,6 @@ fn streaming_stores_require_memory_destinations() {
     for &(form, _, _) in FORMS {
         let mut code = form.to_vec();
         *code.last_mut().unwrap() |= 0xc0;
-        check_unsupported_at_page_end(&code, 0x0f);
+        check_unsupported_at_page_end(&code);
     }
 }

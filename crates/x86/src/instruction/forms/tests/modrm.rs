@@ -227,10 +227,7 @@ fn x87_forms_reject_lock_and_undeclared_register_encodings() {
         assert!(
             matches!(
                 crate::decode::snapshot(&bytes, 0x1000, crate::SegmentDefaultSize::Bits32),
-                Err(crate::BlockError::UnsupportedInstruction {
-                    address: 0x1000,
-                    ..
-                })
+                Err(crate::BlockError::UnsupportedInstruction { address: 0x1000 })
             ),
             "encoding {bytes:02x?} must be rejected before any further operand bytes"
         );

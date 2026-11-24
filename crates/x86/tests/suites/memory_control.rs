@@ -45,10 +45,10 @@ test_frontends!(fences_preserve_state, fences);
 fn fences_require_register_encodings_and_reject_lock() {
     // The /7 memory form is CLFLUSH, covered by the cache-control tests.
     for modrm in [0x28, 0x30] {
-        check_unsupported_at_page_end(&[0x0f, 0xae, modrm], 0x0f);
+        check_unsupported_at_page_end(&[0x0f, 0xae, modrm]);
     }
     for modrm in [0xe8, 0xf0, 0xf8] {
-        check_unsupported_at_page_end(&[0xf0, 0x0f, 0xae, modrm], 0xf0);
+        check_unsupported_at_page_end(&[0xf0, 0x0f, 0xae, modrm]);
     }
 }
 

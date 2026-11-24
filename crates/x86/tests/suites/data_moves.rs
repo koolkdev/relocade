@@ -150,8 +150,7 @@ fn invalid_groups_reject_before_fetching_an_address_or_immediate() {
     for (opcode, modrm) in [(0xc6, 0x0c), (0xc7, 0x3d)] {
         assert!(matches!(
             compile_block_from_bytes(0x1ffe, &[opcode, modrm], 1),
-            Err(BlockError::UnsupportedInstruction { address: 0x1ffe, opcode: actual })
-                if actual == opcode
+            Err(BlockError::UnsupportedInstruction { address: 0x1ffe })
         ));
         let mut image = Image::new(&[]);
         image.cpu.eip = 0x1ffe;
@@ -159,10 +158,7 @@ fn invalid_groups_reject_before_fetching_an_address_or_immediate() {
         image.check_unchanged_exit(
             module,
             "invalid MOV group",
-            Exit::UnsupportedInstruction {
-                eip: 0x1ffe,
-                opcode,
-            },
+            Exit::UnsupportedInstruction { eip: 0x1ffe },
         );
     }
 }

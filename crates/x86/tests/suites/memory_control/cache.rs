@@ -225,7 +225,7 @@ test_frontends!(cache_physical_addresses, physical_addresses);
 fn cache_instruction_encodings() {
     check_length(&[0x0f, 0x18, 0x84, 0x8d, 0x78, 0x56, 0x34, 0x12]);
     for hint in 0..4 {
-        check_unsupported_at_page_end(&[0x0f, 0x18, 0xc0 | hint << 3], 0x0f);
+        check_unsupported_at_page_end(&[0x0f, 0x18, 0xc0 | hint << 3]);
     }
     for code in [
         &[0xf0, 0x0f, 0x18, 0][..],
@@ -233,10 +233,10 @@ fn cache_instruction_encodings() {
         &[0xf2, 0x0f, 0xae, 0x38],
         &[0xf3, 0x0f, 0xae, 0x38],
     ] {
-        check_unsupported_at_page_end(code, code[0]);
+        check_unsupported_at_page_end(code);
     }
     // The 66 form is CLFLUSHOPT, outside the P4 target.
-    check_unsupported_at_page_end(&[0x66, 0x0f, 0xae, 0x38], 0x0f);
+    check_unsupported_at_page_end(&[0x66, 0x0f, 0xae, 0x38]);
 }
 
 #[test]

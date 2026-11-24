@@ -163,6 +163,6 @@ test_frontends!(checks_segment_span, destination_segments);
 #[test]
 fn encoding_requires_memory_and_rejects_lock() {
     check_length(&[0x0f, 0x01, 0x44, 0x8b, 0x7f]);
-    check_unsupported_at_page_end(&[0x0f, 0x01, 0xc0], 0x0f);
-    check_unsupported_at_page_end(&[0xf0, 0x0f, 0x01, 0x03], 0xf0);
+    check_unsupported_at_page_end(&[0x0f, 0x01, 0xc0]);
+    check_unsupported_at_page_end(&[0xf0, 0x0f, 0x01, 0x03]);
 }

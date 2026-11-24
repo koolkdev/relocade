@@ -49,10 +49,7 @@ fn lock_admits_each_memory_destination_encoding_and_rejects_register_modes() {
             assert!(
                 matches!(
                     decode::snapshot(&code, 0x1000, SegmentDefaultSize::Bits32),
-                    Err(BlockError::UnsupportedInstruction {
-                        address: 0x1000,
-                        opcode: 0xf0
-                    })
+                    Err(BlockError::UnsupportedInstruction { address: 0x1000 })
                 ),
                 "LOCK register form {code:02x?}"
             );

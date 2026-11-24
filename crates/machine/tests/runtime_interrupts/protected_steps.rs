@@ -131,10 +131,7 @@ async fn faults() {
             ),
             (
                 &[0xf1][..],
-                ExecutionExit::UnsupportedInstruction {
-                    eip: 0x101,
-                    opcode: 0xf1,
-                },
+                ExecutionExit::UnsupportedInstruction { eip: 0x101 },
             ),
         ] {
             let irq = Rc::new(RefCell::new(Irq::default()));

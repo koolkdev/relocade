@@ -27,10 +27,7 @@ fn population_count_has_no_supported_encoding() {
         ] {
             assert_eq!(
                 compiler.compile_block(0x1000, code, 1).err(),
-                Some(BlockError::UnsupportedInstruction {
-                    address: 0x1000,
-                    opcode: 0xf3,
-                })
+                Some(BlockError::UnsupportedInstruction { address: 0x1000 })
             );
             let mut image = Image::new(code);
             if profile == ExecutionProfile::Real16 {
@@ -39,10 +36,7 @@ fn population_count_has_no_supported_encoding() {
             image.check_unchanged_exit(
                 interpreter,
                 "post-P4 POPCNT has no executable form",
-                Exit::UnsupportedInstruction {
-                    eip: 0x1000,
-                    opcode: 0xf3,
-                },
+                Exit::UnsupportedInstruction { eip: 0x1000 },
             );
         }
     }
@@ -59,20 +53,14 @@ fn sse3_integer_stores_are_unsupported() {
             Compiler::new(SegmentProfile::Flat32)
                 .compile_block(0x1000, &code, 1)
                 .err(),
-            Some(BlockError::UnsupportedInstruction {
-                address: 0x1000,
-                opcode,
-            }),
+            Some(BlockError::UnsupportedInstruction { address: 0x1000 }),
         );
         let mut image = Image::new(&code);
         image.cpu.x87.status.error_summary = 1;
         image.check_unchanged_exit(
             TestModule::interpreter(),
             "SSE3 stores are unsupported before destination access or x87 effects",
-            Exit::UnsupportedInstruction {
-                eip: 0x1000,
-                opcode,
-            },
+            Exit::UnsupportedInstruction { eip: 0x1000 },
         );
     }
 }
@@ -175,20 +163,17 @@ fn setcc_ignores_modrm_reg_without_changing_its_destination() {
 
 #[test]
 fn unsupported_extensions_stop_before_address_and_immediate_fields() {
-    for (code, opcode) in [
-        (&[0xf6, 0x0c][..], 0xf6),
-        (&[0xf7, 0x0c][..], 0xf7),
-        (&[0x66, 0xf7, 0x0d][..], 0xf7),
-        (&[0xf6, 0x0d][..], 0xf6),
-        (&[0x0f, 0x04][..], 0x0f), // Unassigned extended opcode.
-        (&[0x66, 0x0f, 0x04][..], 0x0f),
+    for code in [
+        &[0xf6, 0x0c][..],
+        &[0xf7, 0x0c],
+        &[0x66, 0xf7, 0x0d],
+        &[0xf6, 0x0d],
+        &[0x0f, 0x04], // Unassigned extended opcode.
+        &[0x66, 0x0f, 0x04],
     ] {
         assert_eq!(
             compile_block_from_bytes(0x1000, code, 1).err(),
-            Some(BlockError::UnsupportedInstruction {
-                address: 0x1000,
-                opcode
-            })
+            Some(BlockError::UnsupportedInstruction { address: 0x1000 })
         );
     }
     for (prefixes, suffix) in [
@@ -278,28 +263,19 @@ fn binary_fetch_faults_follow_decode_precedence() {
             "unsupported F6 extension before SIB",
             0x1ffe,
             vec![0xf6, 0x0c],
-            Exit::UnsupportedInstruction {
-                eip: 0x1ffe,
-                opcode: 0xf6,
-            },
+            Exit::UnsupportedInstruction { eip: 0x1ffe },
         ),
         (
             "unsupported F7 extension before displacement",
             0x1ffe,
             vec![0xf7, 0x0d],
-            Exit::UnsupportedInstruction {
-                eip: 0x1ffe,
-                opcode: 0xf7,
-            },
+            Exit::UnsupportedInstruction { eip: 0x1ffe },
         ),
         (
             "unsupported F7 extension before SIB",
             0x1ffe,
             vec![0xf7, 0x0c],
-            Exit::UnsupportedInstruction {
-                eip: 0x1ffe,
-                opcode: 0xf7,
-            },
+            Exit::UnsupportedInstruction { eip: 0x1ffe },
         ),
         (
             "missing MOVAPS ModRM",
@@ -314,10 +290,7 @@ fn binary_fetch_faults_follow_decode_precedence() {
             "unsupported extended opcode avoids another fetch",
             0x1ffe,
             vec![0x0f, 0x04],
-            Exit::UnsupportedInstruction {
-                eip: 0x1ffe,
-                opcode: 0xf,
-            },
+            Exit::UnsupportedInstruction { eip: 0x1ffe },
         ),
         (
             "second opcode beyond length limit",
@@ -347,10 +320,7 @@ fn binary_fetch_faults_follow_decode_precedence() {
             "last-byte unsupported group avoids a length fault",
             0x1ff1,
             [vec![0x66; 13], vec![0xf7, 0x0c]].concat(),
-            Exit::UnsupportedInstruction {
-                eip: 0x1ff1,
-                opcode: 0xf7,
-            },
+            Exit::UnsupportedInstruction { eip: 0x1ff1 },
         ),
         (
             "TEST immediate beyond length limit",
@@ -362,10 +332,7 @@ fn binary_fetch_faults_follow_decode_precedence() {
             "last-byte F6 extension rejection avoids a length fault",
             0x1ff1,
             [vec![0x66; 13], vec![0xf6, 0x0c]].concat(),
-            Exit::UnsupportedInstruction {
-                eip: 0x1ff1,
-                opcode: 0xf6,
-            },
+            Exit::UnsupportedInstruction { eip: 0x1ff1 },
         ),
         (
             "MOVAPD ModRM beyond length limit",
@@ -377,10 +344,7 @@ fn binary_fetch_faults_follow_decode_precedence() {
             "last-byte unsupported extended opcode avoids a length fault",
             0x1ff1,
             [vec![0x66; 13], vec![0x0f, 0x04]].concat(),
-            Exit::UnsupportedInstruction {
-                eip: 0x1ff1,
-                opcode: 0xf,
-            },
+            Exit::UnsupportedInstruction { eip: 0x1ff1 },
         ),
     ] {
         let mut image = Image::new(&[]);

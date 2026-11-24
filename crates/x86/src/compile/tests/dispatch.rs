@@ -49,10 +49,7 @@ fn cases() -> (Vec<Invocation>, Vec<crate::ExecutionExit>) {
     let first = crate::ExecutionExit::Host(crate::HostExit::Call {
         service_id: 0x89ab_cdef,
     });
-    let replacement = crate::ExecutionExit::UnsupportedInstruction {
-        eip: u32::MAX,
-        opcode: 0xf3,
-    };
+    let replacement = crate::ExecutionExit::UnsupportedInstruction { eip: u32::MAX };
     let mut push = |cpu: CpuState, table: &EntryTable, export, result| {
         cases.push(Invocation {
             cpu: cpu.to_bytes().to_vec(),
@@ -203,10 +200,7 @@ fn callable_dispatch_resolves_functions_and_fallback() {
         constant(crate::ExecutionExit::Host(crate::HostExit::Call {
             service_id: 0x89ab_cdef,
         })),
-        constant(crate::ExecutionExit::UnsupportedInstruction {
-            eip: u32::MAX,
-            opcode: 0xf3,
-        }),
+        constant(crate::ExecutionExit::UnsupportedInstruction { eip: u32::MAX }),
     ];
     let (cases, expected) = cases();
     let outputs = execute(&dispatcher, &targets, &cases);

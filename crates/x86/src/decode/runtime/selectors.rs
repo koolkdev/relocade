@@ -8,6 +8,7 @@ use crate::{
     instruction::{
         forms_by_opcode, DecodedInstruction, Form, OpcodeMap, Prefix, EXTENDED_OPCODE_ESCAPE,
     },
+    state::exit,
 };
 
 use super::{cursor::RuntimeCursor, InstructionDecoder};
@@ -50,7 +51,7 @@ where
         let opcodes: Vec<_> = actions.keys().copied().collect();
         body.switch(opcode, &opcodes, |mut arm, key| {
             let Some(opcode_case) = key else {
-                return state.return_unsupported(arm, &cursor, opcode);
+                return exit::unsupported(arm, cursor.instruction_eip());
             };
             match &actions[&opcode_case] {
                 OpcodeAction::Instruction(forms) => {

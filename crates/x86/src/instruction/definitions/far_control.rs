@@ -160,7 +160,7 @@ where
     // Only protected mode interprets entry NT as a task return.
     let protected = execution.protected_mode()?;
     let nested_task = execution.read_flag(Flag::NT)?;
-    execution.unsupported_if(protected.and(nested_task), 0xcf)?;
+    execution.unsupported_if(protected.and(nested_task))?;
     let frame = execution.pop_frame(3 * T::BYTES, 3 * T::BYTES)?;
     let offset = frame.field::<T>(execution, 0)?.read(execution)?;
     // Real-mode IRETD checks the new offset before reading either CS or FLAGS.

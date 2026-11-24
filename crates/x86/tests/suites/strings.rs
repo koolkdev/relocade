@@ -269,20 +269,14 @@ fn unsupported_string_forms_reject_even_with_zero_count() {
         let code = [prefix, opcode];
         assert_eq!(
             compile_block_from_bytes(0x1000, &code, 1).err(),
-            Some(BlockError::UnsupportedInstruction {
-                address: 0x1000,
-                opcode: prefix
-            })
+            Some(BlockError::UnsupportedInstruction { address: 0x1000 })
         );
         let mut image = Image::new(&code);
         image.cpu.registers.ecx = 0;
         image.check_unchanged_exit(
             TestModule::interpreter(),
             "unsupported string form precedes count and operand access",
-            Exit::UnsupportedInstruction {
-                eip: 0x1000,
-                opcode: prefix,
-            },
+            Exit::UnsupportedInstruction { eip: 0x1000 },
         );
     }
 }

@@ -147,10 +147,7 @@ fn sse_immediate_shifts_reject_memory_destinations_before_reading_more_bytes() {
     ] {
         assert_eq!(
             compile_block_from_bytes(0x1ffc, &code, 1).err(),
-            Some(BlockError::UnsupportedInstruction {
-                address: 0x1ffc,
-                opcode: 0x0f
-            }),
+            Some(BlockError::UnsupportedInstruction { address: 0x1ffc }),
         );
         let mut image = Image::new(&[]);
         image.cpu.eip = 0x1ffc;
@@ -158,10 +155,7 @@ fn sse_immediate_shifts_reject_memory_destinations_before_reading_more_bytes() {
         image.check_unchanged_exit(
             TestModule::interpreter(),
             "invalid memory destination is rejected before missing SIB or immediate bytes",
-            Exit::UnsupportedInstruction {
-                eip: 0x1ffc,
-                opcode: 0xf,
-            },
+            Exit::UnsupportedInstruction { eip: 0x1ffc },
         );
     }
 }

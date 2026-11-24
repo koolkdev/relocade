@@ -166,10 +166,7 @@ fn mmx_immediate_shifts_reject_memory_destinations_before_reading_more_bytes() {
     for code in [[0x0f, 0x71, 0x34], [0x0f, 0x72, 0x24], [0x0f, 0x73, 0x14]] {
         assert_eq!(
             compile_block_from_bytes(0x1ffd, &code, 1).err(),
-            Some(BlockError::UnsupportedInstruction {
-                address: 0x1ffd,
-                opcode: 0x0f
-            })
+            Some(BlockError::UnsupportedInstruction { address: 0x1ffd })
         );
         let mut image = Image::new(&[]);
         image.cpu.eip = 0x1ffd;
@@ -177,10 +174,7 @@ fn mmx_immediate_shifts_reject_memory_destinations_before_reading_more_bytes() {
         image.check_unchanged_exit(
             TestModule::interpreter(),
             "memory form is rejected before missing SIB or immediate bytes",
-            Exit::UnsupportedInstruction {
-                eip: 0x1ffd,
-                opcode: 0xf,
-            },
+            Exit::UnsupportedInstruction { eip: 0x1ffd },
         );
     }
 }

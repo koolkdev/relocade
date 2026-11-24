@@ -45,10 +45,7 @@ fn prefix_selection_does_not_extend_pause_to_other_register_exchanges() {
             let code = [prefix, opcode];
             assert_eq!(
                 compile_block_from_bytes(0x1ffe, &code, 1).err(),
-                Some(BlockError::UnsupportedInstruction {
-                    address: 0x1ffe,
-                    opcode: prefix,
-                }),
+                Some(BlockError::UnsupportedInstruction { address: 0x1ffe }),
             );
             let mut image = Image::empty();
             image.cpu.eip = 0x1ffe;
@@ -57,10 +54,7 @@ fn prefix_selection_does_not_extend_pause_to_other_register_exchanges() {
             image.check_unchanged_exit(
                 TestModule::interpreter(),
                 &format!("prefix rejection without fetching a successor: {code:02x?}"),
-                Exit::UnsupportedInstruction {
-                    eip: 0x1ffe,
-                    opcode: prefix,
-                },
+                Exit::UnsupportedInstruction { eip: 0x1ffe },
             );
         }
     }

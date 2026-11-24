@@ -236,10 +236,7 @@ fn register_sources_are_rejected_by_both_decoders_before_execution() {
         image.check_unchanged_exit(
             TestModule::interpreter(),
             &format!("pointer load rejects register source {code:02x?}"),
-            Exit::UnsupportedInstruction {
-                eip: image.cpu.eip,
-                opcode: opcode[0],
-            },
+            Exit::UnsupportedInstruction { eip: image.cpu.eip },
         );
     }
 }

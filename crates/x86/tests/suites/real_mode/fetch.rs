@@ -43,10 +43,7 @@ fn fetches() {
         (
             0x2000,
             &[][..],
-            Exit::UnsupportedInstruction {
-                eip: 0x2000,
-                opcode: 0xff,
-            },
+            Exit::UnsupportedInstruction { eip: 0x2000 },
         ),
         (0xffff, &[0xb8][..], Exit::GeneralProtection { error: 0 }),
     ] {
@@ -96,10 +93,7 @@ fn fetches() {
                 Step {
                     cpu,
                     ram: &[],
-                    exit: Exit::UnsupportedInstruction {
-                        eip: 0x1234,
-                        opcode: 0xff
-                    }
+                    exit: Exit::UnsupportedInstruction { eip: 0x1234 }
                 },
             ]
         ))
@@ -292,10 +286,7 @@ fn fetch_callbacks(mmio: bool) {
             &[0xc7, 0xc8, 0, 0][..],
             0x1000,
             2,
-            Exit::UnsupportedInstruction {
-                eip: 0x1000,
-                opcode: 0xc7,
-            },
+            Exit::UnsupportedInstruction { eip: 0x1000 },
         ),
         (&[0xb8][..], 0xffff, 1, Exit::GeneralProtection { error: 0 }),
         (

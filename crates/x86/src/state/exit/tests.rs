@@ -1,7 +1,7 @@
 use super::{exception, unsupported, ExecutionExit, ExecutionExitValues, HostExit, HostExitValues};
 use crate::test_step::{returned, Argument, Event, Input, Observation, Snapshot, TestModule};
 use crate::{CompiledModule, CpuState, Exception, ExceptionValues};
-use relocade_compiler::{abi::Function, Program, I8};
+use relocade_compiler::{abi::Function, Program};
 
 fn exit_module() -> Vec<u8> {
     let mut program = Program::new();
@@ -74,7 +74,7 @@ fn exit_module() -> Vec<u8> {
                     }
                     "step_complete" => return body.return_(ExecutionExitValues::step_complete()),
                     "halted" => return body.return_(ExecutionExitValues::halted()),
-                    "unsupported" => return unsupported(body, &address, detail.truncate::<I8>()),
+                    "unsupported" => return unsupported(body, &address),
                     _ => unreachable!(),
                 };
                 exception(body, fault)
@@ -119,10 +119,7 @@ fn generated_exits_preserve_payloads() {
     cases.extend([
         (
             "unsupported",
-            ExecutionExit::UnsupportedInstruction {
-                eip: address,
-                opcode: detail as u8,
-            },
+            ExecutionExit::UnsupportedInstruction { eip: address },
         ),
         ("interrupt_entered", ExecutionExit::InterruptEntered),
         ("far_call_entered", ExecutionExit::FarCallEntered),
@@ -214,11 +211,8 @@ fn execution_exits_share_four_wasm_values() {
             (1, 6, address as i32, error_code as i32),
         ),
         (
-            ExecutionExit::UnsupportedInstruction {
-                eip: address,
-                opcode: 0xff,
-            },
-            (2, address as i32, 255, 0),
+            ExecutionExit::UnsupportedInstruction { eip: address },
+            (2, address as i32, 0, 0),
         ),
     ];
     for (exit, flat) in cases {

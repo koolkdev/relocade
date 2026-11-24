@@ -205,10 +205,7 @@ fn unsupported_ba_extensions_precede_address_or_immediate_fetches() {
         let code = [0x0f, 0xba, 0x04 | (extension << 3)];
         assert_eq!(
             compile_block_from_bytes(0x1ffd, &code, 1).err(),
-            Some(BlockError::UnsupportedInstruction {
-                address: 0x1ffd,
-                opcode: 0x0f
-            })
+            Some(BlockError::UnsupportedInstruction { address: 0x1ffd })
         );
         let mut image = Image::new(&[]);
         image.cpu.eip = 0x1ffd;
@@ -216,10 +213,7 @@ fn unsupported_ba_extensions_precede_address_or_immediate_fetches() {
         image.check_unchanged_exit(
             TestModule::interpreter(),
             "unsupported BA extension needs no further bytes",
-            Exit::UnsupportedInstruction {
-                eip: 0x1ffd,
-                opcode: 0xf,
-            },
+            Exit::UnsupportedInstruction { eip: 0x1ffd },
         );
     }
 }

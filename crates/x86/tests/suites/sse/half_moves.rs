@@ -137,19 +137,13 @@ fn sse_half_rejected_register_forms() {
             let code = encoding(prefix, opcode, 0xf1);
             assert_eq!(
                 compile_block_from_bytes(0x1000, &code, 1).err(),
-                Some(BlockError::UnsupportedInstruction {
-                    address: 0x1000,
-                    opcode: 0x0f
-                }),
+                Some(BlockError::UnsupportedInstruction { address: 0x1000 }),
                 "memory-only half transfer rejects {code:02x?}",
             );
             image(&code).check_unchanged_exit(
                 TestModule::interpreter(),
                 &format!("memory-only half transfer rejects {code:02x?}"),
-                Exit::UnsupportedInstruction {
-                    eip: 0x1000,
-                    opcode: 0xf,
-                },
+                Exit::UnsupportedInstruction { eip: 0x1000 },
             );
         }
     }

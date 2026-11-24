@@ -235,10 +235,7 @@ fn interpreter_reads_only_after_complete_supported_encoding() {
     image.check_unchanged_exit(
         TestModule::interpreter(),
         "LOCK rejects before reading the counter",
-        Exit::UnsupportedInstruction {
-            eip: 0x1000,
-            opcode: 0xf0,
-        },
+        Exit::UnsupportedInstruction { eip: 0x1000 },
     );
 }
 

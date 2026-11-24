@@ -199,10 +199,7 @@ fn invalid_segment_encodings_are_rejected_before_address_bytes_or_source_access(
                 &format!(
                     "invalid segment move opcode={opcode:02x}, extension={extension}, mode={mode}"
                 ),
-                Exit::UnsupportedInstruction {
-                    eip: 0x1ffe,
-                    opcode,
-                },
+                Exit::UnsupportedInstruction { eip: 0x1ffe },
             );
         }
     }

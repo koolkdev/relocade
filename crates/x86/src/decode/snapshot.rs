@@ -111,11 +111,9 @@ pub(crate) fn snapshot(
             break byte;
         }
     };
-    let reported_opcode = state.unsupported_opcode_override().unwrap_or(opcode);
     if opcode == EXTENDED_OPCODE_ESCAPE {
         state = state.extended().ok_or(BlockError::UnsupportedInstruction {
             address: instruction_eip,
-            opcode: reported_opcode,
         })?;
         opcode = cursor.byte()?;
     }
@@ -124,7 +122,6 @@ pub(crate) fn snapshot(
         .next()
         .ok_or(BlockError::UnsupportedInstruction {
             address: instruction_eip,
-            opcode: reported_opcode,
         })?;
     let (form, modrm) = if first.encoding.has_modrm() {
         let modrm = cursor.byte()?;
@@ -133,7 +130,6 @@ pub(crate) fn snapshot(
             .find(|form| form.matches_modrm(modrm, &state.prefixes))
             .ok_or(BlockError::UnsupportedInstruction {
                 address: instruction_eip,
-                opcode: reported_opcode,
             })?;
         (form, Some(modrm))
     } else {

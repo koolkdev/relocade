@@ -224,10 +224,7 @@ fn fxsave_requires_memory_and_no_opcode_prefix() {
     ] {
         assert!(matches!(
             compile_block_from_bytes(0x1000, code, 1),
-            Err(BlockError::UnsupportedInstruction {
-                address: 0x1000,
-                ..
-            })
+            Err(BlockError::UnsupportedInstruction { address: 0x1000 })
         ));
     }
 }

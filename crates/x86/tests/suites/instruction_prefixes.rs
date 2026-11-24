@@ -84,16 +84,17 @@ fn instruction_length_counts_prefixes_and_each_required_field_byte() {
             matches!(compile_block_from_bytes(0x1000, &vec![0x66; prefixes], 1), Err(BlockError::TruncatedInstruction { available, .. }) if available == prefixes)
         );
     }
-    for (prefixes, suffix, opcode) in [
-        (14, &[0xf1][..], 0xf1),
-        (13, &[0xc7, 0x0d][..], 0xc7),
-        (1, &[0xf0, 0x8b, 0][..], 0xf0),
+    for (prefixes, suffix) in [
+        (14, &[0xf1][..]),
+        (13, &[0xc7, 0x0d][..]),
+        (1, &[0xf0, 0x8b, 0][..]),
     ] {
         let mut code = vec![0x66; prefixes];
         code.extend_from_slice(suffix);
-        assert!(
-            matches!(compile_block_from_bytes(0x1000, &code, 1), Err(BlockError::UnsupportedInstruction { address: 0x1000, opcode: actual }) if actual == opcode)
-        );
+        assert!(matches!(
+            compile_block_from_bytes(0x1000, &code, 1),
+            Err(BlockError::UnsupportedInstruction { address: 0x1000 })
+        ));
     }
 }
 
@@ -227,20 +228,14 @@ fn prefix_length_limits_precede_fetch_and_unsupported_checks() {
             14,
             &[0xf1][..],
             0x1ff1,
-            Exit::UnsupportedInstruction {
-                eip: 0x1ff1,
-                opcode: 0xf1,
-            },
+            Exit::UnsupportedInstruction { eip: 0x1ff1 },
         ),
         (
             "unsupported group at last admitted ModRM",
             13,
             &[0xc7, 0x0d][..],
             0x1ff1,
-            Exit::UnsupportedInstruction {
-                eip: 0x1ff1,
-                opcode: 0xc7,
-            },
+            Exit::UnsupportedInstruction { eip: 0x1ff1 },
         ),
         (
             "address prefix continues scanning",

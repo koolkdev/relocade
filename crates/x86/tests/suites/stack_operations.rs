@@ -177,10 +177,7 @@ fn unsupported_group_extensions_precede_address_fetch() {
         let code = [opcode, modrm];
         assert_eq!(
             compile_block_from_bytes(0x1ffe, &code, 1).err(),
-            Some(BlockError::UnsupportedInstruction {
-                address: 0x1ffe,
-                opcode
-            })
+            Some(BlockError::UnsupportedInstruction { address: 0x1ffe })
         );
         let mut image = Image::new(&[]);
         image.cpu.eip = 0x1ffe;
@@ -188,10 +185,7 @@ fn unsupported_group_extensions_precede_address_fetch() {
         image.check_unchanged_exit(
             TestModule::interpreter(),
             "unsupported stack extension does not fetch its missing SIB",
-            Exit::UnsupportedInstruction {
-                eip: 0x1ffe,
-                opcode,
-            },
+            Exit::UnsupportedInstruction { eip: 0x1ffe },
         );
     }
 }

@@ -1472,15 +1472,15 @@ Page-fault error bit 0 means a present but denied page, bit 1 means a data write
 and bit 4 means instruction fetch. Cached segment-access failures use #SS(0) for
 SS and #GP(0) for other segments. Resolver faults retain their selector error code.
 
-An unsupported exit describes an encoding or execution path outside the
-implementation's subset, not an architectural invalid-opcode exception. Its
-diagnostic byte is the first byte after size and segment prefixes, `0F` for an
-extended opcode, or the selected `F0`/`F2`/`F3` prefix for an unsupported prefixed
-form. It does not retire or dispatch. Protected IRET with entry NT set reports
-`CF` at the instruction's restart EIP, including its prefixes. Snapshot
-construction reports `BlockError` for unsupported encodings; state-dependent
-unsupported paths remain
-runtime exits. Truncated byte input alone cannot establish a guest fetch fault.
+`ExecutionExit::UnsupportedInstruction { eip }` returns to the host before the
+instruction retires. EIP points to the first byte of the instruction, including
+any prefixes. An unsupported encoding or execution path can produce this exit.
+For example, protected IRET exits at its restart EIP when the entry NT flag is set.
+
+Snapshot decoding reports `BlockError::UnsupportedInstruction { address }` at
+the same instruction boundary for an unsupported encoding. State-dependent
+unsupported paths return from guest execution. Truncated snapshot input alone
+cannot establish a guest fetch fault.
 
 Faults outside Real16 #DE/#BR/#UD are reported to the host. Protected interrupt
 gates, privilege transitions, protected-mode external interrupts, debug delivery
