@@ -1,6 +1,6 @@
 use futures_util::future::join;
 use relocade_workers::{Pool, Thread};
-use relocade_x86::{build_interpreter, ExecutionProfile, SegmentProfile};
+use relocade_x86::{build_interpreter, build_pc_interpreter, SegmentProfile};
 use std::{env, error::Error, fs, path::PathBuf, thread};
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -26,15 +26,16 @@ fn main() -> Result<(), Box<dyn Error>> {
     let out = PathBuf::from(env::var_os("OUT_DIR").expect("Cargo output directory"));
     let ((), result) = pollster::block_on(join(pool.run(), async move {
         for (name, profile) in [
-            ("flat32", SegmentProfile::Flat32.into()),
-            ("segmented32", SegmentProfile::Segmented32.into()),
-            ("segmented16", SegmentProfile::Segmented16.into()),
-            ("real16", ExecutionProfile::Real16),
+            ("flat32", SegmentProfile::Flat32),
+            ("segmented32", SegmentProfile::Segmented32),
+            ("segmented16", SegmentProfile::Segmented16),
         ] {
             let program = build_interpreter(profile)?;
             let bytes = program.compile_with(&executor).await?;
             fs::write(out.join(format!("{name}.wasm")), bytes)?;
         }
+        let pc = build_pc_interpreter()?.compile_with(&executor).await?;
+        fs::write(out.join("pc.wasm"), pc)?;
         Ok::<(), Box<dyn Error>>(())
     }));
     result

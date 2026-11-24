@@ -70,7 +70,7 @@ pub use compile::{
 pub use decode::SnapshotInstruction;
 pub use exception::{Exception, ExceptionCase, ExceptionValues, ExceptionVector};
 pub use instruction::{CallTarget, InstructionFlow, MAX_INSTRUCTION_BYTES};
-pub use interpreter::{build_interpreter, build_interpreter_with_memory};
+pub use interpreter::{build_interpreter, build_interpreter_with_memory, build_pc_interpreter};
 pub use memory::{page_table, MmioHandlerId, PhysicalMapError, PhysicalMapping, PhysicalMemoryMap};
 pub use processor::{CpuFeature, CpuModel};
 pub use profile::{ExecutionProfile, ExecutionTarget, MemoryBackend};

@@ -55,6 +55,32 @@ fn faults(frontend: Frontend) {
 }
 test_frontends!(faults_enter_through_the_live_ivt, faults);
 
+#[test]
+fn pc_delivers_invalid_opcode_only_in_real_mode() {
+    use relocade_x86::SegmentDefaultSize::Bits16;
+
+    let module = TestModule::from_bytes(relocade_interpreter::pc(), crate::abi::STEP.name, None);
+    let mut image = interrupt_image(&[0x0f, 0x0b], 6); // UD2.
+    assert_eq!(
+        module.observe(&image.input(), 1),
+        expected(
+            &image,
+            &[Step {
+                cpu: handler_state(image.cpu),
+                ram: &[(0x8000, &[0, 0x10, 0, 0, 0xd7, 0x5f])],
+                exit: Exit::Other(relocade_x86::ExecutionExit::InterruptEntered),
+            }]
+        )
+    );
+
+    let mut protected = CpuState::protected_mode(Bits16, Bits16);
+    protected.eip = image.cpu.eip;
+    protected.segments.ss.base = image.cpu.segments.ss.base;
+    protected.registers.esp = image.cpu.registers.esp;
+    image.cpu = protected;
+    image.check_unchanged_exit(&module, "protected-mode UD2", Exit::InvalidOpcode);
+}
+
 fn frames(frontend: Frontend) {
     let mut cases = sequences(frontend);
     for (code, vector) in [
