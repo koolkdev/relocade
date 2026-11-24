@@ -65,13 +65,7 @@ impl FileSystem {
     }
 
     pub(crate) fn current_directory(&self, drive: u8) -> Result<&str, DosError> {
-        // AH=47h uses 0 for the default drive and 1-based explicit drive numbers.
-        let letter = match drive {
-            0 => self.current_drive,
-            1..=26 => char::from(b'A' + drive - 1),
-            _ => return Err(DosError::InvalidDrive),
-        };
-        self.drives.get(letter).ok_or(DosError::InvalidDrive)?;
+        let letter = self.query_drive(drive)?;
         Ok(self
             .current_directories
             .get(&letter)
