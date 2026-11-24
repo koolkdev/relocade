@@ -4,12 +4,12 @@ mod full_precision;
 pub(super) use full_precision::full_precision_candidate;
 
 use crate::floating::{BinaryFormat, FiniteInput, RoundingMode};
-use relocade_compiler::{BlockBuilder, BuildError, Val, I8};
+use relocade_compiler::{BlockBuilder, BuildError, Val, I1, I8};
 
 use super::{
     operand::{AddendSigns, BinaryOperands, Operand},
     result::{ArithmeticCandidate, BinaryArithmetic, RoundedShape, RoundedValue},
-    value::KnownClass,
+    value::{ConditionalBinary64, KnownClass},
     BinaryOperation, ExtendedValue,
 };
 
@@ -59,11 +59,24 @@ pub(super) fn add(
     })
 }
 
-/// Two 48-bit terms leave room for exponent alignment and a carry in binary64.
-/// Wider terms use the general sum directly.
-fn at_most_48_bits(body: &BlockBuilder<'_>, operand: &Operand) -> Result<bool, BuildError> {
-    Ok(operand.binary32_value().is_some()
-        || body.constant_bits(operand.bits.significand.and(0xffff_u64))? == Some(0))
+/// Start native accumulation with short terms, or reuse the certified binary64
+/// arm of a previous sum. Full-width inputs take the general sum directly.
+fn native_addend(
+    body: &BlockBuilder<'_>,
+    operand: &Operand,
+) -> Result<Option<ConditionalBinary64>, BuildError> {
+    if let Some(native) = &operand.conditional_binary64 {
+        return Ok(Some(native.clone()));
+    }
+    let Some(value) = operand.binary64_value() else {
+        return Ok(None);
+    };
+    let short = operand.binary32_value().is_some()
+        || body.constant_bits(operand.bits.significand.and(0xffff_u64))? == Some(0);
+    Ok(short.then(|| ConditionalBinary64 {
+        valid: true.into(),
+        value: value.clone(),
+    }))
 }
 
 /// Requires PC64/nearest and finite operands. Both branches execute in the JIT.
@@ -73,14 +86,14 @@ pub(super) fn short_sum_candidate(
     rounding: &RoundingMode,
 ) -> Result<Option<ArithmeticCandidate>, BuildError> {
     let (Some(left), Some(right)) = (
-        operands.left.binary64_value(),
-        operands.right.binary64_value(),
+        native_addend(body, &operands.left)?,
+        native_addend(body, &operands.right)?,
     ) else {
         return Ok(None);
     };
-    if !at_most_48_bits(body, &operands.left)? || !at_most_48_bits(body, &operands.right)? {
-        return Ok(None);
-    }
+    let inputs_native = left.valid.and(&right.valid);
+    let left = &left.value;
+    let right = &right.value;
     let sum = left.add(right);
     // Subtracting the larger-magnitude operand recovers the smaller exactly
     // only when their native sum is exact (FastTwoSum). Check both orders.
@@ -89,24 +102,37 @@ pub(super) fn short_sum_candidate(
     let bits = sum.to_bits();
     let exponent = BinaryFormat::Binary64.exponent_field(&bits);
     let ordinary = zero.or(exponent.sub(1).unsigned().lt(2046));
-    let components = body.if_value::<RoundedShape>(
-        exact.and(ordinary),
+    let use_native = inputs_native.and(exact).and(ordinary);
+    let joined_input = operands.left.conditional_binary64.is_some()
+        || operands.right.conditional_binary64.is_some();
+    let (in_range, components) = body.if_value::<(I1, RoundedShape)>(
+        &use_native,
         |body| {
             let class = KnownClass::zero().select(&zero, &KnownClass::normal());
             let value = ExtendedValue::from_classified_binary(BinaryFormat::Binary64, bits, class);
-            body.yield_(RoundedValue::exact(value).components())
+            body.yield_((true, RoundedValue::exact(value).components()))
         },
         |mut body| {
-            // A nonzero sum of two finite binary64 values is always in the
-            // extended normal range. Exact cancellations took the first arm.
+            // Fresh binary64 terms cannot exceed the extended exponent range.
+            // A previous wide arm may have carried a value outside binary64.
             let wide =
                 full_precision_candidate(&mut body, operands, BinaryOperation::Add, rounding)?;
-            body.yield_(wide.rounded.components())
+            let valid = if joined_input {
+                wide.valid
+            } else {
+                true.into()
+            };
+            body.yield_((valid, wide.rounded.components()))
         },
     )?;
     let class = KnownClass::zero().select(&components.0.eq(0_u64), &KnownClass::normal());
+    let mut rounded = RoundedValue::from_components(components, class);
+    rounded.value.conditional_binary64 = Some(ConditionalBinary64 {
+        valid: use_native,
+        value: sum,
+    });
     Ok(Some(ArithmeticCandidate {
-        valid: operands.normal_or_zero(),
-        rounded: RoundedValue::from_components(components, class),
+        valid: operands.normal_or_zero().and(in_range),
+        rounded,
     }))
 }

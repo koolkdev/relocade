@@ -5,7 +5,7 @@ use relocade_compiler::{BlockBuilder, BuildError, Val, F64, I1, I32, I64, I8};
 
 use super::{
     result::RoundedValue,
-    value::{BinaryValue, Precision53},
+    value::{BinaryValue, ConditionalBinary64, Precision53},
     ArithmeticCandidate, ArithmeticResult, BinaryArithmetic, BinaryOperand, BinaryOperation,
     ExtendedBits, ExtendedValue,
 };
@@ -16,6 +16,7 @@ pub(crate) struct Operand {
     // value requires its own range and precision proof. Neither changes evidence.
     pub(super) precision53_significand: Option<Val<F64>>,
     binary_value: Option<BinaryValue>,
+    pub(super) conditional_binary64: Option<ConditionalBinary64>,
     normal_or_zero: Val<I1>,
     pub(super) zero: Val<I1>,
     pub(super) infinity: Val<I1>,
@@ -32,6 +33,7 @@ impl Operand {
             bits: value.bits(),
             precision53_significand: value.precision53_significand(),
             binary_value: value.binary_value(),
+            conditional_binary64: value.conditional_binary64.clone(),
             normal_or_zero: class.normal_or_zero(),
             zero: class.zero(),
             infinity: class.infinity(),
@@ -87,6 +89,7 @@ impl Operand {
         Self {
             bits: source.expanded_bits(),
             binary_value: Some(source.binary_value()),
+            conditional_binary64: None,
             precision53_significand: Some(
                 Precision53::from_bits(&source.expanded_bits())
                     .significand()
