@@ -7,7 +7,7 @@ use crate::{
     profile::EntryGuarantees,
     runtime::Runtime,
     state::{Cpu, State},
-    CpuModel, ExecutionProfile, ExecutionTarget, MemoryBackend,
+    CompilerConfig, CpuModel, ExecutionMode,
 };
 use relocade_compiler::{BlockBuilder, BuildError, Func, Program, TypedFunc, Val, I32};
 use std::{collections::BTreeMap, sync::Arc};
@@ -26,55 +26,23 @@ pub(crate) struct ExecutionModule {
 }
 
 impl ExecutionModule {
-    pub(crate) fn declare(
-        program: &mut Program,
-        target: ExecutionTarget,
-        entry_guarantees: EntryGuarantees,
-    ) -> Self {
-        let mut module = Self::new(
-            program,
-            target.memory_backend,
-            target.cpu_model,
-            target.instruction_budgets,
-            entry_guarantees,
-        );
-        match target.profile {
-            ExecutionProfile::Real16 => module.declare_real_mode_interrupt(program),
-            ExecutionProfile::Protected(_) => module.runtime.import_hosted_descriptors(program),
-        }
-        module
-    }
-
-    pub(crate) fn pc_interpreter(program: &mut Program) -> Self {
-        let mut module = Self::new(
-            program,
-            MemoryBackend::PhysicalBus,
-            CpuModel::default(),
-            true,
-            EntryGuarantees::pc(),
-        );
-        module.declare_real_mode_interrupt(program);
-        module
-    }
-
-    fn new(
-        program: &mut Program,
-        memory_backend: MemoryBackend,
-        cpu_model: CpuModel,
-        instruction_budgets: bool,
-        entry_guarantees: EntryGuarantees,
-    ) -> Self {
-        Self {
+    pub(crate) fn declare(program: &mut Program, config: CompilerConfig) -> Self {
+        let mut module = Self {
             cpu: Arc::new(Cpu::declare(program)),
-            memory: Arc::new(Memory::declare(program, memory_backend)),
+            memory: Arc::new(Memory::declare(program, config.memory_backend)),
             entries: Arc::default(),
             call_links: Arc::new(CallLinks::declare(program)),
             runtime: Runtime::declare(program),
-            cpu_model,
-            instruction_budgets,
-            entry_guarantees,
+            cpu_model: config.cpu_model,
+            instruction_budgets: config.instruction_budgets,
+            entry_guarantees: EntryGuarantees::for_entry(config.entry),
             interrupt: None,
+        };
+        match config.entry.mode {
+            Some(ExecutionMode::ProtectedUser) => module.runtime.import_hosted_descriptors(program),
+            Some(ExecutionMode::Real) | None => module.declare_real_mode_interrupt(program),
         }
+        module
     }
 
     fn declare_real_mode_interrupt(&mut self, program: &mut Program) {

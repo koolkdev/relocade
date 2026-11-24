@@ -29,7 +29,7 @@ async fn retire_linked_compilations(compiler: &relocade_machine::CompilerService
     memory.write(0x210, &[0x83, 0xc0, 1, 0xc3]).unwrap(); // ADD AX,1; RET
     let cpu = machine.create_cpu(config, Some(compiler)).unwrap();
     ExecutionWorker::spawn(cpu, SessionConfig::host(), async move |mut runner| {
-        let target = runner.cpu().cpu_state().execution_target();
+        let target = runner.cpu().cpu_state().compiler_config();
         let mut compiler = runner.take_compiler().unwrap();
         let request = |offset| FunctionRequest {
             entry: FarPointer { segment: 0, offset },
@@ -201,7 +201,7 @@ async fn patch_from_ready_hook(compiler: &relocade_machine::CompilerService) {
     let map =
         PhysicalMemoryMap::new([(0..=0x1fff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap();
     let mut machine = Machine::new(MachineConfig::new(0x2000, map).unwrap()).unwrap();
-    let target = Compiler::new(ExecutionProfile::Real16).target();
+    let target = Compiler::new(ExecutionProfile::Real16).config();
     let config = CpuConfig::new(target, CpuState::real_mode()).unwrap();
     let memory = machine.memory();
     memory.view().write(0x100, &[0xe8, 0xfd, 0, 0xc3]).unwrap(); // CALL 0200; RET
@@ -282,7 +282,7 @@ async fn installation_lifetimes(compiler: &relocade_machine::CompilerService) {
     let cpu = machine.create_cpu(config, Some(compiler)).unwrap();
     ExecutionWorker::spawn(cpu, SessionConfig::host(), async move |mut runner| {
         let memory = runner.memory();
-        let target = runner.cpu().cpu_state().execution_target();
+        let target = runner.cpu().cpu_state().compiler_config();
         let mut compiler = runner.take_compiler().unwrap();
         compiler
             .request(

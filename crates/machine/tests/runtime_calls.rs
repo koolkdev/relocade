@@ -64,7 +64,7 @@ async fn cpu(irq: &Rc<RefCell<Irq>>, handler: u16) -> Cpu {
     state.registers.esp = 0x8000;
     state.flags.set_eflags(0x243);
     let config = support::configuration(
-        Compiler::new(ExecutionProfile::Real16).target(),
+        Compiler::new(ExecutionProfile::Real16).config(),
         state,
         0x10000,
         PhysicalMemoryMap::new([(0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap(),

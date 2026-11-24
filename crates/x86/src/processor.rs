@@ -31,13 +31,16 @@ pub struct CpuModel {
 
 impl Default for CpuModel {
     fn default() -> Self {
-        Self {
-            features: feature::ALL_FEATURES,
-        }
+        Self::DEFAULT
     }
 }
 
 impl CpuModel {
+    /// The default virtual processor enables every supported CPU feature.
+    pub const DEFAULT: Self = Self {
+        features: feature::ALL_FEATURES,
+    };
+
     pub(crate) const fn bits(self) -> u32 {
         self.features
     }

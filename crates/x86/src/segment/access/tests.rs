@@ -31,9 +31,10 @@ fn translation(
         },
         move |mut body| {
             let mut state = match profile {
-                Some(profile) => {
-                    State::for_entry(&cpu, &crate::profile::EntryGuarantees::for_target(profile))
-                }
+                Some(profile) => State::for_entry(
+                    &cpu,
+                    &crate::profile::EntryGuarantees::for_entry(profile.into()),
+                ),
                 None => State::new(&cpu),
             };
             let choice = body.parameter::<I32>(0)?;
@@ -58,7 +59,7 @@ fn translation(
     CompiledModule {
         bytes,
         entry: "translate".into(),
-        execution_target: profile.map(|profile| crate::Compiler::new(profile).target()),
+        execution_target: profile.map(|profile| crate::Compiler::new(profile).config()),
     }
 }
 
@@ -140,7 +141,9 @@ fn unknown_indices_generate_only_the_raw_cache_reads() {
                 move |mut body, _| {
                     let mut state = State::for_entry(
                         &cpu,
-                        &crate::profile::EntryGuarantees::for_target(SegmentProfile::Flat32),
+                        &crate::profile::EntryGuarantees::for_entry(
+                            crate::EntryAssumptions::FLAT32,
+                        ),
                     );
                     let index = SegmentSelection::indexed(body.parameter::<I32>(0)?);
 
@@ -189,7 +192,7 @@ fn nested_reads_reuse_previously_loaded_segment_fields() {
     let function = program.function::<fn(u32) -> (u32, u32)>(move |mut body, _| {
         let mut state = State::for_entry(
             &cpu,
-            &crate::profile::EntryGuarantees::for_target(ExecutionProfile::Real16),
+            &crate::profile::EntryGuarantees::for_entry(crate::EntryAssumptions::REAL_MODE),
         );
         let first = state.segments().base(&mut body, &Segment::Ds.into())?;
         let condition = body.parameter::<I32>(0)?.eq(0);

@@ -1,7 +1,7 @@
 use crate::{
     state::{Cpu, State},
     test_step::{Argument, Event, Input, Observation, Outcome, Snapshot, TestModule},
-    CompiledModule, CpuState, ExecutionProfile, SegmentProfile,
+    CompiledModule, CpuState,
 };
 use relocade_compiler::{Program, I32};
 
@@ -62,47 +62,51 @@ fn predicates_read_live_control_bits_without_changing_the_snapshot() {
 
 #[test]
 fn entry_guarantees_fold_control_and_interrupt_flag_reads() {
-    use crate::{flags::Flag, profile::EntryGuarantees, ExecutionTarget, MemoryBackend};
+    use crate::{flags::Flag, profile::EntryGuarantees, EntryAssumptions, PrivilegeLevel};
 
-    let protected16 = SegmentProfile::Segmented16.into();
-    for (profile, memory, fixed_interrupt_flags) in [
-        (ExecutionProfile::Real16, MemoryBackend::PhysicalBus, false),
+    for (entry, cpl, interrupt_flag, iopl) in [
+        (EntryAssumptions::LIVE, None, None, None),
+        (EntryAssumptions::REAL_MODE, Some(0), None, None),
+        (EntryAssumptions::FLAT32, Some(3), Some(1), Some(0)),
+        (EntryAssumptions::SEGMENTED16, Some(3), Some(1), Some(0)),
         (
-            SegmentProfile::Flat32.into(),
-            MemoryBackend::HostPageTable,
-            true,
+            EntryAssumptions {
+                interrupt_flag: None,
+                iopl: None,
+                ..EntryAssumptions::SEGMENTED16
+            },
+            Some(3),
+            None,
+            None,
         ),
-        (protected16, MemoryBackend::HostPageTable, true),
-        (protected16, MemoryBackend::PhysicalBus, false),
+        (
+            EntryAssumptions {
+                interrupt_flag: Some(false),
+                iopl: Some(PrivilegeLevel::Ring2),
+                ..EntryAssumptions::LIVE
+            },
+            None,
+            Some(0),
+            Some(2),
+        ),
     ] {
-        let target = ExecutionTarget::new(profile, memory);
         let mut program = Program::new();
         let cpu = Cpu::declare(&mut program);
         let function = program.function::<fn()>(move |mut body, ()| {
-            let mut state = State::for_entry(&cpu, &EntryGuarantees::for_target(target));
+            let mut state = State::for_entry(&cpu, &EntryGuarantees::for_entry(entry));
             let protected = state.protected_mode(&mut body)?;
-            let cpl = state.privilege_level(&mut body)?;
+            let privilege = state.privilege_level(&mut body)?;
             let tsd = state.timestamp_access_denied(&mut body)?;
-            let is_protected = profile != ExecutionProfile::Real16;
             assert_eq!(
                 body.constant_bits(&protected)?,
-                Some(u64::from(is_protected))
+                cpl.map(|level| u64::from(level == 3))
             );
-            assert_eq!(
-                body.constant_bits(&cpl)?,
-                Some(if is_protected { 3 } else { 0 })
-            );
-            assert_eq!(body.constant_bits(&tsd)?, Some(0));
+            assert_eq!(body.constant_bits(&privilege)?, cpl);
+            assert_eq!(body.constant_bits(&tsd)?, cpl.map(|_| 0));
             let interrupt = state.read_flag(&mut body, Flag::IF)?;
-            let iopl = state.read_iopl(&mut body)?;
-            assert_eq!(
-                body.constant_bits(&interrupt)?,
-                fixed_interrupt_flags.then_some(1)
-            );
-            assert_eq!(
-                body.constant_bits(&iopl)?,
-                fixed_interrupt_flags.then_some(0)
-            );
+            let io_privilege = state.read_iopl(&mut body)?;
+            assert_eq!(body.constant_bits(&interrupt)?, interrupt_flag);
+            assert_eq!(body.constant_bits(&io_privilege)?, iopl);
             body.return_(())
         });
         program.export("check", function).unwrap();
@@ -117,7 +121,7 @@ fn segment_and_privilege_reads_share_the_same_selector() {
     let function = program.function::<fn() -> u32>(move |mut body, ()| {
         let mut state = State::for_entry(
             &cpu,
-            &crate::profile::EntryGuarantees::for_target(SegmentProfile::Flat32),
+            &crate::profile::EntryGuarantees::for_entry(crate::EntryAssumptions::FLAT32),
         );
         let selector = state
             .segments()

@@ -1,13 +1,23 @@
 use futures_util::future::join;
 use relocade_workers::{Pool, Thread};
-use relocade_x86::{build_interpreter, build_pc_interpreter, SegmentProfile};
+use relocade_x86::{build_interpreter_with_config, EntryAssumptions, MemoryBackend};
 use std::{env, error::Error, fs, path::PathBuf, thread};
+
+#[path = "src/catalog.rs"]
+mod catalog;
+
+macro_rules! filename {
+    ($file:literal) => {
+        $file
+    };
+}
 
 fn main() -> Result<(), Box<dyn Error>> {
     // Read Cargo's inherited descriptors before opening files or starting threads.
     // SAFETY: Cargo owns the advertised jobserver descriptors at process startup.
     let jobserver = unsafe { jobserver::Client::from_env() };
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=src/catalog.rs");
     let parallelism = thread::available_parallelism().map_or(1, usize::from);
     let mut tokens = Vec::new();
     if let Some(jobserver) = jobserver {
@@ -25,17 +35,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     let (pool, executor) = Pool::new(threads)?;
     let out = PathBuf::from(env::var_os("OUT_DIR").expect("Cargo output directory"));
     let ((), result) = pollster::block_on(join(pool.run(), async move {
-        for (name, profile) in [
-            ("flat32", SegmentProfile::Flat32),
-            ("segmented32", SegmentProfile::Segmented32),
-            ("segmented16", SegmentProfile::Segmented16),
-        ] {
-            let program = build_interpreter(profile)?;
+        for (entry, backend, filename) in catalog::interpreter_catalog!(filename) {
+            let program = build_interpreter_with_config(entry, backend)?;
             let bytes = program.compile_with(&executor).await?;
-            fs::write(out.join(format!("{name}.wasm")), bytes)?;
+            fs::write(out.join(filename), bytes)?;
         }
-        let pc = build_pc_interpreter()?.compile_with(&executor).await?;
-        fs::write(out.join("pc.wasm"), pc)?;
         Ok::<(), Box<dyn Error>>(())
     }));
     result

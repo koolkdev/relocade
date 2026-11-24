@@ -52,7 +52,7 @@ fn configured_features(frontend: Frontend) {
     ] {
         let target = Compiler::new(SegmentProfile::Flat32)
             .with_cpu_model(CpuModel::default().with_feature(feature, false))
-            .target();
+            .config();
         for (leaf, values) in [(0, VENDOR), (1, features), (u32::MAX, features)] {
             let mut image = Image::new(&[0x0f, 0xa2]);
             image.cpu.registers.eax = leaf;
@@ -105,8 +105,8 @@ fn configured_features(frontend: Frontend) {
     let mut image = Image::new(&[0x0f, 0xa2]);
     image.cpu.registers.eax = 1;
     let module = match frontend {
-        Frontend::Block => blocks.get_with_target(&image.cpu, &[0x0f, 0xa2], 1, compiler.target()),
-        Frontend::Interpreter => TestModule::interpreter_with_target(compiler.target()),
+        Frontend::Block => blocks.get_with_target(&image.cpu, &[0x0f, 0xa2], 1, compiler.config()),
+        Frontend::Interpreter => TestModule::interpreter_with_target(compiler.config()),
     };
     let cpu = result(image.cpu, [0x601, 0, 0, 0], 2, 1);
     assert_eq!(

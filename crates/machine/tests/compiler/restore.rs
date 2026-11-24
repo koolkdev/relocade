@@ -38,7 +38,7 @@ async fn restore_with_compiled_code(service: &relocade_machine::CompilerService)
             instruction_limit: 1,
         };
         compiler
-            .request(state.execution_target(), vec![block])
+            .request(state.compiler_config(), vec![block])
             .unwrap();
         let code = compiler.recv().await.unwrap().unwrap();
         code.install(runner.cpu()).unwrap();
@@ -53,7 +53,7 @@ async fn restore_with_compiled_code(service: &relocade_machine::CompilerService)
         );
 
         compiler
-            .request(state.execution_target(), vec![block])
+            .request(state.compiler_config(), vec![block])
             .unwrap();
         state.restore(&protected).unwrap();
         let before = state.instruction_count();

@@ -156,11 +156,17 @@ fn protected_pc_allows_cli_at_iopl3_and_still_faults_on_halt() {
         machine::{expected, Exit, Image, Step},
         step::TestModule,
     };
-    use relocade_x86::{Compiler, MemoryBackend, SegmentProfile};
+    use relocade_x86::{Compiler, MemoryBackend};
 
     let code = [0xfa, 0xf4]; // CLI; HLT
-    let compiler =
-        Compiler::new(SegmentProfile::Flat32).with_memory_backend(MemoryBackend::PhysicalBus);
+    let compiler = Compiler::new(crate::CompilerConfig::new(
+        crate::EntryAssumptions {
+            interrupt_flag: None,
+            iopl: None,
+            ..crate::EntryAssumptions::FLAT32
+        },
+        MemoryBackend::PhysicalBus,
+    ));
     let mut image = Image::new(&code);
     image.cpu.flags.bytes.iopl = 3;
     let mut after_cli = image.cpu;
@@ -177,7 +183,7 @@ fn protected_pc_allows_cli_at_iopl3_and_still_faults_on_halt() {
     );
 
     let block = TestModule::new(&compiler.compile_block(image.cpu.eip, &code, 2).unwrap());
-    let run = TestModule::interpreter_run_with_target(compiler.target());
+    let run = TestModule::interpreter_run_with_target(compiler.config());
     for module in [&block, run] {
         assert_eq!(module.observe(&image.input(), 1), wanted);
     }

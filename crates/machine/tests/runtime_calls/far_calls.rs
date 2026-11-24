@@ -190,7 +190,7 @@ async fn mapped_arguments() {
     // A nonzero SS places the arguments across two guest pages whose backing
     // order is reversed. Direct backing writes or ignoring SS cannot pass.
     let config = support::configuration(
-        Compiler::new(ExecutionProfile::Real16).target(),
+        Compiler::new(ExecutionProfile::Real16).config(),
         state,
         0x3000,
         PhysicalMemoryMap::new([

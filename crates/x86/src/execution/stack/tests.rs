@@ -2,22 +2,25 @@
 
 use crate::{
     execution::ExecutionModule,
-    profile::EntryGuarantees,
     state::{cr0, State},
     support::machine::{check, Exit, Image, Step},
     test_step::TestModule,
-    Compiler, CpuState, ExecutionExit, ExecutionExitValues, MemoryBackend, SegmentDefaultSize,
-    SegmentProfile, SnapshotInstruction,
+    CompilerConfig, CpuState, EntryAssumptions, ExecutionExit, ExecutionExitValues, MemoryBackend,
+    SegmentDefaultSize, SegmentProfile, SnapshotInstruction,
 };
 use relocade_compiler::Program;
 
 fn instruction(bytes: &[u8]) -> TestModule {
     let mut program = Program::new();
-    let target = Compiler::new(SegmentProfile::Segmented16)
-        .with_memory_backend(MemoryBackend::PhysicalBus)
-        .target();
-    let module =
-        ExecutionModule::declare(&mut program, target, EntryGuarantees::for_target(target));
+    let config = CompilerConfig::new(
+        EntryAssumptions {
+            interrupt_flag: None,
+            iopl: None,
+            ..EntryAssumptions::SEGMENTED16
+        },
+        MemoryBackend::PhysicalBus,
+    );
+    let module = ExecutionModule::declare(&mut program, config);
     let decoded = SnapshotInstruction::decode(bytes, 0x1000, SegmentDefaultSize::Bits16).unwrap();
     let function = program.function::<crate::abi::ExecutionSignature>(move |body, ()| {
         let mut execution = module.builder(body, 0x1000)?;

@@ -1,5 +1,5 @@
 use relocade_x86::{
-    CpuMode, CpuState, DescriptorTableRegister, ExecutionContext, ExecutionTarget, FlagsState,
+    CompilerConfig, CpuMode, CpuState, DescriptorTableRegister, ExecutionContext, FlagsState,
     PrivilegeLevel, Segment, SegmentDefaultSize, SegmentRegister, Segments, SystemSegmentRegister,
 };
 use std::{marker::PhantomData, mem::offset_of, rc::Rc};
@@ -50,13 +50,13 @@ impl CpuStateAccess {
         );
     }
 
-    /// The JIT compilation target. An attached PC may be interpreting protected
+    /// Inputs used to compile guest code. An attached PC may be interpreting protected
     /// code. Use the live CPU queries below to read its mode and widths.
-    pub fn execution_target(&self) -> ExecutionTarget {
-        self.execution.target()
+    pub fn compiler_config(&self) -> CompilerConfig {
+        self.execution.config()
     }
 
-    /// Retains an initialized image compatible with the execution target.
+    /// Retains an initialized image admitted by the CPU configuration.
     #[inline]
     pub(crate) fn new(config: &CpuConfig, storage: SharedMemory) -> Self {
         Self {
@@ -121,7 +121,7 @@ impl CpuStateAccess {
     /// Changes live IF without touching arithmetic flags or creating STI's shadow.
     ///
     /// # Panics
-    /// Panics before writing if the execution target fixes IF to another value.
+    /// Panics before writing if the entry assumptions fix IF to another value.
     #[track_caller]
     #[inline]
     pub fn set_interrupts_enabled(&self, enabled: bool) {
@@ -136,7 +136,7 @@ impl CpuStateAccess {
     /// Replaces the represented flags from the supplied EFLAGS image.
     ///
     /// # Panics
-    /// Panics before writing if VM is set or if IF or IOPL violates the execution target.
+    /// Panics before writing if VM is set or if IF or IOPL violates the entry assumptions.
     #[track_caller]
     pub fn set_eflags(&self, value: u32) {
         let mut flags = FlagsState::from_bytes(self.read(offset_of!(CpuState, flags)));
@@ -147,9 +147,9 @@ impl CpuStateAccess {
 
     #[track_caller]
     fn write_flags(&self, offset: usize, bytes: &[u8]) {
-        if let CpuExecution::Fixed(target) = self.execution {
+        if let CpuExecution::Fixed(config) = self.execution {
             assert!(
-                target.matches_control_write(offset, bytes),
+                config.matches_control_write(offset, bytes),
                 "flag write violates the CPU entry assumptions"
             );
         }

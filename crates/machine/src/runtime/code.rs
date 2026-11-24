@@ -1,12 +1,12 @@
 use crate::Result;
 use relocade_wasm_runtime::{ModuleCache, WasmCompiler};
-use relocade_x86::{Compiler, ExecutionTarget};
+use relocade_x86::{Compiler, CompilerConfig};
 
 pub(super) async fn dispatcher<C: WasmCompiler>(
     compiler: &C,
-    target: ExecutionTarget,
+    config: CompilerConfig,
 ) -> Result<C::Module> {
-    let dispatcher = Compiler::from_target(target).compile_dispatcher()?;
+    let dispatcher = Compiler::new(config).compile_dispatcher()?;
     Ok(compiler.compile(&dispatcher.bytes).await?)
 }
 

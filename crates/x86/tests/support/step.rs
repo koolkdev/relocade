@@ -3,7 +3,7 @@ mod tests;
 
 use std::sync::Arc;
 
-use crate::ExecutionTarget;
+use crate::CompilerConfig;
 use relocade_test_support::Module;
 pub(crate) use relocade_test_support::{Outcome, Value as Argument};
 
@@ -151,7 +151,7 @@ pub(crate) struct Observation {
 pub(crate) struct TestModule {
     module: Arc<Module>,
     pub(crate) entry: String,
-    target: Option<ExecutionTarget>,
+    target: Option<CompilerConfig>,
     interpreter: Option<&'static TestModule>,
 }
 
@@ -161,7 +161,7 @@ impl TestModule {
     }
 
     /// Selects an execution export from a module with any number of entries.
-    pub(crate) fn from_bytes(bytes: &[u8], entry: &str, target: Option<ExecutionTarget>) -> Self {
+    pub(crate) fn from_bytes(bytes: &[u8], entry: &str, target: Option<CompilerConfig>) -> Self {
         Self {
             module: Arc::new(Module::new(bytes)),
             entry: entry.into(),

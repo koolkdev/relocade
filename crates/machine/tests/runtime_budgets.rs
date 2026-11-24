@@ -12,7 +12,7 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
 async fn cpu(compiler: &Compiler, code: &[u8], compiled: bool, count: u64) -> Cpu {
     let config = support::configuration(
-        compiler.target(),
+        compiler.config(),
         CpuState {
             eip: 0x100,
             instruction_count: count,

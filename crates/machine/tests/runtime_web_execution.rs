@@ -12,7 +12,7 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 async fn runtime_executes_with_live_cpu_and_memory() {
     let target = Compiler::new(ExecutionProfile::Real16)
         .with_cpu_model(CpuModel::default().with_feature(CpuFeature::Tsc, false))
-        .target();
+        .config();
     let cpu = CpuState {
         eip: 0x100,
         ..CpuState::real_mode()

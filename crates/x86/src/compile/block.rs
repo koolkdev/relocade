@@ -9,7 +9,7 @@ pub use error::BlockCompileError;
 
 use super::{CodeAddress, Compiler};
 use crate::{
-    BlockError, CompiledModule, ExecutionProfile, ExecutionTarget, SegmentDefaultSize,
+    BlockError, CompiledModule, CompilerConfig, ExecutionProfile, SegmentDefaultSize,
     SegmentProfile,
 };
 use module::BlockModule;
@@ -54,7 +54,7 @@ pub struct CompiledBlocks {
     /// Unresolved slots initially call `relocade.resolveAndJump`.
     pub call_targets: Vec<u32>,
     /// Shared execution policy. Each entry records its own decode width.
-    pub execution_target: ExecutionTarget,
+    pub config: CompilerConfig,
 }
 
 /// Compiles a byte snapshot under [`SegmentProfile::Flat32`].
@@ -114,7 +114,7 @@ pub fn compile_block_from_bytes(
 /// let block = compile_block_from_bytes_with_profile(
 ///     0x1000, &[0xb8, 0x34, 0x12], 1, SegmentProfile::Segmented16,
 /// )?;
-/// assert_eq!(block.execution_target, Some(Compiler::new(SegmentProfile::Segmented16).target()));
+/// assert_eq!(block.execution_target, Some(Compiler::new(SegmentProfile::Segmented16).config()));
 /// # Ok::<(), relocade_x86::BlockError>(())
 /// ```
 pub fn compile_block_from_bytes_with_profile(
@@ -123,6 +123,7 @@ pub fn compile_block_from_bytes_with_profile(
     instruction_limit: u32,
     profile: impl Into<ExecutionProfile>,
 ) -> Result<CompiledModule, BlockError> {
+    let profile = profile.into();
     Compiler::new(profile).compile_block(start_eip, bytes, instruction_limit)
 }
 
@@ -133,7 +134,7 @@ impl Compiler {
         &self,
         snapshots: &[BlockSnapshot<'_>],
     ) -> Result<Vec<DecodedBlock>, BlockError> {
-        decode::blocks(snapshots, self.target)
+        decode::blocks(snapshots, self.config)
     }
 
     /// Lowers caller-supplied blocks without reading guest memory or discovering successors.
@@ -170,17 +171,30 @@ impl Compiler {
     /// Compiles a snapshot through the boundary described by
     /// [`compile_block_from_bytes`], with this compiler's execution target and
     /// observations. Fetch admission follows [`compile_block_from_bytes_with_profile`].
-    /// The profile supplies the decode width. Use [`Self::compile_blocks`] for
-    /// snapshots that carry the CS.D captured with their bytes.
+    /// Decoding uses the guaranteed CS.D or the width captured by [`Self::specialize_on_cpu`].
+    /// Use [`Self::compile_blocks`] for snapshots that record their own CS.D.
     pub fn compile_block(
         &self,
         start_eip: u32,
         bytes: &[u8],
         instruction_limit: u32,
     ) -> Result<CompiledModule, BlockError> {
+        if instruction_limit == 0 {
+            return Err(BlockError::ZeroInstructionLimit);
+        }
+        let code_default_size = self
+            .config
+            .entry
+            .fixed_code_default_size()
+            .or_else(|| {
+                self.observed_cpu
+                    .as_ref()
+                    .map(crate::CpuState::code_default_size)
+            })
+            .ok_or(BlockError::MissingCodeDefaultSize { address: start_eip })?;
         let mut blocks = self.compile_blocks(&[BlockSnapshot {
             address: CodeAddress::CsRelative(start_eip),
-            code_default_size: SegmentDefaultSize::for_profile(self.target.profile),
+            code_default_size,
             bytes,
             instruction_limit,
         }])?;
@@ -191,7 +205,7 @@ impl Compiler {
         Ok(CompiledModule {
             bytes: blocks.bytes,
             entry: entry.export,
-            execution_target: Some(blocks.execution_target),
+            execution_target: Some(blocks.config),
         })
     }
 
@@ -210,7 +224,7 @@ impl Compiler {
     ///
     /// Every export requires its recorded CS.D, original EIP and valid snapshot bytes under
     /// the current CS base. The embedding admits entries against
-    /// [`CompiledBlocks::execution_target`] and maintains their validity throughout
+    /// [`CompiledBlocks::config`] and maintains their validity throughout
     /// execution, as described by the [host integration contract](crate#entry-validity).
     /// The caller must also limit blocks at registered execution boundaries absent
     /// from this batch.
@@ -230,7 +244,7 @@ impl Compiler {
     /// assert_eq!(module.entries[0].export, "block_1000");
     /// assert_eq!(module.entries[0].byte_len, 5);
     /// assert_eq!(module.entries[1].export, "block_2000");
-    /// assert_eq!(module.execution_target, compiler.target());
+    /// assert_eq!(module.config, compiler.config());
     /// # Ok::<(), relocade_x86::BlockError>(())
     /// ```
     pub fn compile_blocks(

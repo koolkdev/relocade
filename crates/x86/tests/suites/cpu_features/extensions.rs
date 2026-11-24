@@ -67,7 +67,7 @@ fn disabled_extensions(frontend: Frontend) {
     ] {
         let target = Compiler::new(SegmentProfile::Flat32)
             .with_cpu_model(CpuModel::default().with_feature(feature, false))
-            .target();
+            .config();
         for &instruction in forms {
             let code = [instruction, &[0x0f]].concat();
             let mut image = Image::new(&code);

@@ -59,7 +59,7 @@ async fn session(irq: &Rc<RefCell<Irq>>) -> (Cpu, Rc<DosState>) {
     .unwrap();
     let memory = Memory::new(MachineConfig::new(0x100000, map).unwrap()).unwrap();
     let config = CpuConfig::new(
-        Compiler::new(ExecutionProfile::Real16).target(),
+        Compiler::new(ExecutionProfile::Real16).config(),
         CpuState::real_mode(),
     )
     .unwrap();

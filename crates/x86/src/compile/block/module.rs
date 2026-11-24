@@ -3,8 +3,7 @@
 use super::{decode::DecodedBlock, BlockCompileError, BlockEntry, CompiledBlocks, Compiler};
 use crate::compile::CodeAddress;
 use crate::{
-    execution::ExecutionModule, instruction::CallTarget, profile::EntryGuarantees, BlockError,
-    ExecutionProfile, InstructionFlow,
+    execution::ExecutionModule, instruction::CallTarget, BlockError, ExecutionMode, InstructionFlow,
 };
 use relocade_compiler::{CompileExecutor, Func, Program};
 use std::collections::BTreeMap;
@@ -42,7 +41,7 @@ impl<'a> BlockModule<'a> {
                 .split_last()
                 .expect("a decoded block has a first instruction");
             if let Some(boundary) = interior.iter().find(|instruction| {
-                instruction.flow(self.compiler.target) != InstructionFlow::Continue
+                instruction.flow(self.compiler.config) != InstructionFlow::Continue
             }) {
                 return Err(BlockError::InteriorBlockBoundary {
                     address: boundary.eip(),
@@ -68,15 +67,8 @@ impl<'a> BlockModule<'a> {
     }
 
     pub(in crate::compile) fn new(compiler: &'a Compiler) -> Self {
-        Self::with_entry_guarantees(compiler, EntryGuarantees::for_target(compiler.target))
-    }
-
-    pub(in crate::compile) fn with_entry_guarantees(
-        compiler: &'a Compiler,
-        guarantees: EntryGuarantees,
-    ) -> Self {
         let mut program = Program::new();
-        let execution = ExecutionModule::declare(&mut program, compiler.target, guarantees);
+        let execution = ExecutionModule::declare(&mut program, compiler.config);
         Self {
             compiler,
             program,
@@ -101,7 +93,7 @@ impl<'a> BlockModule<'a> {
             }
         }
         let mut call_sites = BTreeMap::new();
-        if self.compiler.target.profile == ExecutionProfile::Real16 {
+        if self.compiler.config.entry.mode == Some(ExecutionMode::Real) {
             for instruction in blocks.iter().flat_map(|(block, _)| &block.instructions) {
                 let target = match instruction.call_target() {
                     Some(CallTarget::Near(eip)) if eip <= 0xffff => {
@@ -133,7 +125,7 @@ impl<'a> BlockModule<'a> {
             entries: self.entries,
             spans: self.spans,
             call_targets: self.call_targets,
-            execution_target: self.compiler.target,
+            config: self.compiler.config,
         })
     }
 
@@ -146,7 +138,7 @@ impl<'a> BlockModule<'a> {
             entries: self.entries,
             spans: self.spans,
             call_targets: self.call_targets,
-            execution_target: self.compiler.target,
+            config: self.compiler.config,
         })
     }
 

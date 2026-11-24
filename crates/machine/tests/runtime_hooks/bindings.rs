@@ -98,7 +98,7 @@ async fn wait_for_ready(call: &mut CpuContext<'_>, ready: oneshot::Receiver<()>,
 
 async fn check_bindings() {
     let config = support::configuration(
-        Compiler::new(ExecutionProfile::Real16).target(),
+        Compiler::new(ExecutionProfile::Real16).config(),
         CpuState::real_mode(),
         0x10000,
         PhysicalMemoryMap::new([(0..=0xffff, PhysicalMapping::Ram { backing_offset: 0 })]).unwrap(),

@@ -24,7 +24,7 @@ async fn create_cpu(io: IoBus, code: &[u8], instruction_count: u64) -> Cpu {
     Cpu::new(
         memory,
         CpuConfig::new(
-            Compiler::new(ExecutionProfile::Real16).target(),
+            Compiler::new(ExecutionProfile::Real16).config(),
             CpuState {
                 eip: 0x100,
                 instruction_count,

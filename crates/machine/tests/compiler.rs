@@ -39,7 +39,7 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 fn setup() -> (Machine, CpuConfig) {
     let config = CpuConfig::new(
-        Compiler::new(ExecutionProfile::Real16).target(),
+        Compiler::new(ExecutionProfile::Real16).config(),
         CpuState {
             eip: 0x100,
             ..CpuState::real_mode()
@@ -75,7 +75,7 @@ async fn connections(compiler: &relocade_machine::CompilerService) {
     let (mut first_machine, config) = setup();
     let (mut second_machine, _) = setup();
     let first = first_machine.create_cpu(config, Some(compiler)).unwrap();
-    let mut other_target = config.execution_target();
+    let mut other_target = config.compiler_config();
     other_target.instruction_budgets = !other_target.instruction_budgets;
     let second = second_machine
         .create_cpu(
@@ -91,7 +91,7 @@ async fn connections(compiler: &relocade_machine::CompilerService) {
             .unwrap();
         let observed =
             ExecutionWorker::spawn(cpu, SessionConfig::host(), async move |mut runner| {
-                let target = runner.cpu().cpu_state().execution_target();
+                let target = runner.cpu().cpu_state().compiler_config();
                 let mut compiler = runner.take_compiler().unwrap();
                 assert!(runner.take_compiler().is_none());
                 for offset in [0x1000, 0x2000] {
@@ -161,7 +161,7 @@ async fn connections(compiler: &relocade_machine::CompilerService) {
                 assert_eq!(first.blocks()[0].byte_len, 3);
                 assert!(matches!(
                     first.install(runner.cpu()),
-                    Err(relocade_machine::Error::CompilationTarget)
+                    Err(relocade_machine::Error::CompilationConfig)
                 ));
                 let code = compiler.recv().await.unwrap().unwrap();
                 assert_eq!(code.blocks()[0].byte_len, 5);
@@ -211,7 +211,7 @@ async fn shutdown(compiler: &relocade_machine::CompilerService) {
     let (submitted, ready) = futures_channel::oneshot::channel();
     let (other_submitted, other_ready) = futures_channel::oneshot::channel();
     let execution = ExecutionWorker::spawn(cpu, SessionConfig::host(), async move |mut runner| {
-        let target = runner.cpu().cpu_state().execution_target();
+        let target = runner.cpu().cpu_state().compiler_config();
         let mut compiler = runner.take_compiler().unwrap();
         compiler
             .request(
@@ -242,7 +242,7 @@ async fn shutdown(compiler: &relocade_machine::CompilerService) {
     .join();
     let other_execution =
         ExecutionWorker::spawn(other_cpu, SessionConfig::host(), async move |mut runner| {
-            let target = runner.cpu().cpu_state().execution_target();
+            let target = runner.cpu().cpu_state().compiler_config();
             let mut compiler = runner.take_compiler().unwrap();
             compiler
                 .request(
@@ -305,7 +305,7 @@ async fn independent_machines(compiler: &relocade_machine::CompilerService) {
     first.shutdown().await.unwrap();
 
     let value = ExecutionWorker::spawn(cpu, SessionConfig::host(), async move |mut runner| {
-        let target = runner.cpu().cpu_state().execution_target();
+        let target = runner.cpu().cpu_state().compiler_config();
         let mut compiler = runner.take_compiler().unwrap();
         compiler.request(target, vec![request()]).unwrap();
         let code = compiler.recv().await.unwrap().unwrap();

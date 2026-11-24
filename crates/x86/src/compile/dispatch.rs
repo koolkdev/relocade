@@ -6,7 +6,7 @@ pub use table::EntryTable;
 
 use relocade_compiler::{BlockBuilder, BuildError, Mem, Program, Table, Val, I32};
 
-use crate::{state::Cpu, CompiledModule, ExecutionProfile};
+use crate::{state::Cpu, CompiledModule, ExecutionMode};
 
 use super::Compiler;
 use std::sync::Arc;
@@ -44,7 +44,7 @@ impl Compiler {
     /// # Panics
     /// Panics for a dispatcher target other than Real16.
     pub fn compile_dispatcher(&self) -> Result<CompiledModule, BuildError> {
-        assert_eq!(self.target.profile, ExecutionProfile::Real16);
+        assert_eq!(self.config.entry.mode, Some(ExecutionMode::Real));
         let mut program = Program::new();
         let cpu = Arc::new(Cpu::declare(&mut program));
         let dispatch = Dispatch::declare(&mut program);
@@ -68,7 +68,7 @@ impl Compiler {
         Ok(CompiledModule {
             bytes: program.compile()?,
             entry: crate::abi::DISPATCH.name.into(),
-            execution_target: Some(self.target),
+            execution_target: Some(self.config),
         })
     }
 }

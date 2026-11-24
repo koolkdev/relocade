@@ -26,7 +26,7 @@ async fn prepared_storage() {
                 ..CpuState::real_mode()
             };
             let config =
-                CpuConfig::new(Compiler::new(ExecutionProfile::Real16).target(), initial).unwrap();
+                CpuConfig::new(Compiler::new(ExecutionProfile::Real16).config(), initial).unwrap();
             let mut cpu = storage
                 .into_cpu(memory, config, IoBus::default())
                 .await

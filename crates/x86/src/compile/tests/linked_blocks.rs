@@ -52,7 +52,7 @@ fn enter(blocks: &CompiledBlocks, address: CodeAddress) -> TestModule {
     TestModule::from_bytes(
         &blocks.bytes,
         &format!("block_{address}"),
-        Some(blocks.execution_target),
+        Some(blocks.config),
     )
 }
 

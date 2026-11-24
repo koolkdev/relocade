@@ -8,7 +8,7 @@ pub struct Configuration {
 }
 
 pub fn configuration(
-    target: relocade_x86::ExecutionTarget,
+    target: relocade_x86::CompilerConfig,
     cpu: relocade_x86::CpuState,
     size: u64,
     map: relocade_x86::PhysicalMemoryMap,

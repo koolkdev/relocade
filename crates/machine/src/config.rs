@@ -8,7 +8,7 @@ use std::fmt;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ConfigurationError {
-    UnsupportedMode,
+    UnsupportedEntryAssumptions,
     UnsupportedMemoryBackend,
     IncompatibleCpu,
     GuestTimeRequiresInstructionBudgets,
@@ -22,8 +22,8 @@ impl fmt::Display for ConfigurationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::InvalidTableRegister => "unsupported CPU table registers",
-            Self::UnsupportedMode => {
-                "the physical PC JIT requires the real-mode compilation target"
+            Self::UnsupportedEntryAssumptions => {
+                "the physical PC JIT requires canonical real-mode entry assumptions"
             }
             Self::UnsupportedMemoryBackend => {
                 "physical machine configuration requires the physical memory bus"

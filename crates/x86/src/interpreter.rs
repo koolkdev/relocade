@@ -3,8 +3,8 @@
 use relocade_compiler::{BuildError, Program};
 
 use crate::{
-    decode::RuntimeDecoder, execution::ExecutionModule, profile::EntryGuarantees, state::State,
-    ExecutionProfile, ExecutionTarget, MemoryBackend,
+    decode::RuntimeDecoder, execution::ExecutionModule, state::State, CompilerConfig,
+    EntryAssumptions, ExecutionProfile, ExecutionTarget, MemoryBackend,
 };
 
 /// Builds one interpreter program exporting both `run` and `step`.
@@ -62,10 +62,7 @@ use crate::{
 /// ```
 pub fn build_interpreter(profile: impl Into<ExecutionProfile>) -> Result<Program, BuildError> {
     let profile = profile.into();
-    build(
-        ExecutionTarget::from(profile),
-        EntryGuarantees::for_profile(profile),
-    )
+    build_interpreter_with_memory(profile, MemoryBackend::default_for(profile))
 }
 
 /// Builds the physical-bus PC interpreter. Both `step` and `run` read execution mode,
@@ -74,9 +71,7 @@ pub fn build_interpreter(profile: impl Into<ExecutionProfile>) -> Result<Program
 /// Real-mode interrupts require the conventional IVT. A protected instruction that needs
 /// a guest descriptor-table lookup currently returns [`crate::ExecutionExit::UnsupportedInstruction`].
 pub fn build_pc_interpreter() -> Result<Program, BuildError> {
-    let mut program = Program::new();
-    let execution = ExecutionModule::pc_interpreter(&mut program);
-    define_interpreter(program, execution)
+    build_interpreter_with_config(EntryAssumptions::LIVE, MemoryBackend::PhysicalBus)
 }
 
 /// Builds the same `run` and `step` entries as [`build_interpreter`] with explicit
@@ -88,25 +83,19 @@ pub fn build_interpreter_with_memory(
     profile: impl Into<ExecutionProfile>,
     memory_backend: MemoryBackend,
 ) -> Result<Program, BuildError> {
-    let target = ExecutionTarget::new(profile.into(), memory_backend);
-    build(target, EntryGuarantees::for_target(target))
+    let config = CompilerConfig::from(ExecutionTarget::new(profile.into(), memory_backend));
+    build_interpreter_with_config(config.entry, memory_backend)
 }
 
-fn build(
-    target: ExecutionTarget,
-    entry_guarantees: EntryGuarantees,
+/// Builds the `run` and `step` interpreter entries for the supplied CPU guarantees
+/// and memory backend. CPU features and instruction budgets come from the executing context.
+pub fn build_interpreter_with_config(
+    entry: EntryAssumptions,
+    memory_backend: MemoryBackend,
 ) -> Result<Program, BuildError> {
     let mut program = Program::new();
-    // Both budget policies share the interpreter. Disabled targets keep the
-    // live allowance zero; snapshot compilation alone omits the checks.
-    let execution = ExecutionModule::declare(&mut program, target, entry_guarantees);
-    define_interpreter(program, execution)
-}
-
-fn define_interpreter(
-    mut program: Program,
-    execution: ExecutionModule,
-) -> Result<Program, BuildError> {
+    let execution =
+        ExecutionModule::declare(&mut program, CompilerConfig::new(entry, memory_backend));
     execution.export_entries(&mut program)?;
     let before_cpu = execution.cpu.clone();
     let decoder = RuntimeDecoder::new(

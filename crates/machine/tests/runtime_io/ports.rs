@@ -54,7 +54,7 @@ async fn guest_carriers() {
         device.borrow_mut().port = 0x7654_3210;
         let compiler = Compiler::new(ExecutionProfile::Real16);
         let config = support::configuration(
-            compiler.target(),
+            compiler.config(),
             CpuState {
                 eip: 0x100,
                 ..CpuState::real_mode()

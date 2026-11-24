@@ -19,7 +19,7 @@ async fn check_high_physical_mmio() {
         .find(|&(page, _)| page == BASE)
         .unwrap();
     let config = support::configuration(
-        Compiler::new(ExecutionProfile::Real16).target(),
+        Compiler::new(ExecutionProfile::Real16).config(),
         CpuState::real_mode(),
         0x1000,
         map,

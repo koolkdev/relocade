@@ -11,12 +11,8 @@ fn timestamp_module(tsc_supported: bool) -> CompiledModule {
     let mut program = Program::new();
     let target = Compiler::new(SegmentProfile::Flat32)
         .with_cpu_model(CpuModel::default().with_feature(CpuFeature::Tsc, tsc_supported))
-        .target();
-    let module = ExecutionModule::declare(
-        &mut program,
-        target,
-        crate::profile::EntryGuarantees::for_target(target),
-    );
+        .config();
+    let module = ExecutionModule::declare(&mut program, target);
     let run = program.function::<crate::abi::ExecutionSignature>(move |body, ()| {
         let mut execution = module.builder(body, 0x1000)?;
         // Exercise the declared instruction requirements with live controls.

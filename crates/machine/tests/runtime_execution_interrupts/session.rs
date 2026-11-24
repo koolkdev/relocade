@@ -265,7 +265,7 @@ async fn stopping_a_busy_session_uses_the_same_execution_interrupt() {
 
 async fn saturated_count() {
     let config = support::configuration(
-        Compiler::new(ExecutionProfile::Real16).target(),
+        Compiler::new(ExecutionProfile::Real16).config(),
         CpuState {
             eip: 0x100,
             instruction_count: u64::MAX,

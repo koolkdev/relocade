@@ -5,7 +5,7 @@ use crate::{
 };
 use futures_channel::{mpsc, oneshot};
 use futures_util::StreamExt;
-use relocade_x86::ExecutionTarget;
+use relocade_x86::CompilerConfig;
 
 /// Lets the machine close and drain one CPU's connection to the compiler service.
 pub(crate) struct Connection {
@@ -14,7 +14,7 @@ pub(crate) struct Connection {
 }
 
 pub struct Request {
-    pub(super) target: ExecutionTarget,
+    pub(super) config: CompilerConfig,
     pub(super) compilation: Compilation,
 }
 
@@ -89,7 +89,7 @@ impl Start {
                 let result = compile(
                     compiler,
                     &self.memory,
-                    request.target,
+                    request.config,
                     request.compilation,
                     jobs,
                 )

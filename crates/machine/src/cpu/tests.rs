@@ -12,7 +12,7 @@ fn cpu_memory(cpu: &CpuConfig) -> SharedMemory {
         0,
         &ExecutionContext {
             cpu: *cpu.cpu(),
-            cpu_model: cpu.execution_target().cpu_model,
+            cpu_model: cpu.compiler_config().cpu_model,
             interrupt_requested: 1,
             ..ExecutionContext::default()
         }
@@ -33,7 +33,7 @@ fn configuration() -> CpuConfig {
     CpuConfig::new(
         Compiler::new(ExecutionProfile::Real16)
             .with_cpu_model(model)
-            .target(),
+            .config(),
         CpuState::real_mode(),
     )
     .unwrap()
@@ -153,7 +153,7 @@ fn restoring_architectural_state_preserves_retirement_and_execution_controls() {
 fn live_mode_and_width_queries_read_published_state() {
     use relocade_x86::{CpuMode, PrivilegeLevel, SegmentDefaultSize::*, SegmentProfile};
     let config = CpuConfig::new(
-        Compiler::new(SegmentProfile::Segmented16).target(),
+        Compiler::new(SegmentProfile::Segmented16).config(),
         CpuState::protected_mode(Bits16, Bits32),
     )
     .unwrap();
@@ -178,7 +178,7 @@ fn restore_rejects_incompatible_control_state_without_writing() {
     for config in [
         configuration(),
         CpuConfig::new(
-            Compiler::new(SegmentProfile::Flat32).target(),
+            Compiler::new(SegmentProfile::Flat32).config(),
             CpuState::default(),
         )
         .unwrap(),
@@ -213,7 +213,7 @@ fn incompatible_control_and_privilege_edits_leave_state_unchanged() {
     for config in [
         configuration(),
         CpuConfig::new(
-            Compiler::new(SegmentProfile::Flat32).target(),
+            Compiler::new(SegmentProfile::Flat32).config(),
             CpuState::default(),
         )
         .unwrap(),
@@ -224,7 +224,7 @@ fn incompatible_control_and_privilege_edits_leave_state_unchanged() {
         assert_eq!(cpu.snapshot(), before);
     }
     let config = CpuConfig::new(
-        Compiler::new(SegmentProfile::Flat32).target(),
+        Compiler::new(SegmentProfile::Flat32).config(),
         CpuState::default(),
     )
     .unwrap();
@@ -246,7 +246,7 @@ fn incompatible_control_and_privilege_edits_leave_state_unchanged() {
 fn hosted_cpu_admission_and_restore_require_the_interrupt_flag_guarantees() {
     use relocade_x86::SegmentProfile;
 
-    let target = Compiler::new(SegmentProfile::Flat32).target();
+    let target = Compiler::new(SegmentProfile::Flat32).config();
     let config = CpuConfig::new(target, CpuState::default()).unwrap();
     let cpu = CpuStateAccess::new(&config, cpu_memory(&config));
     let before = cpu.snapshot();
@@ -265,18 +265,23 @@ fn hosted_cpu_admission_and_restore_require_the_interrupt_flag_guarantees() {
 
 #[test]
 fn protected_pc_allows_host_edits_to_if_and_iopl() {
-    use relocade_x86::{MemoryBackend, SegmentProfile};
+    use relocade_x86::{CompilerConfig, EntryAssumptions, MemoryBackend};
 
-    let target = Compiler::new(SegmentProfile::Flat32)
-        .with_memory_backend(MemoryBackend::PhysicalBus)
-        .target();
-    let config = CpuConfig::new(target, CpuState::default()).unwrap();
+    let compiler_config = CompilerConfig::new(
+        EntryAssumptions {
+            interrupt_flag: None,
+            iopl: None,
+            ..EntryAssumptions::FLAT32
+        },
+        MemoryBackend::PhysicalBus,
+    );
+    let config = CpuConfig::new(compiler_config, CpuState::default()).unwrap();
     let cpu = CpuStateAccess::new(&config, cpu_memory(&config));
     cpu.set_eflags(0x3202);
     cpu.set_interrupts_enabled(false);
     assert_eq!(cpu.eflags(), 0x3002);
     let snapshot = cpu.snapshot();
-    assert!(CpuConfig::new(target, snapshot).is_ok());
+    assert!(CpuConfig::new(compiler_config, snapshot).is_ok());
     cpu.set_eflags(0x202);
     cpu.restore(&snapshot).unwrap();
     assert_eq!(cpu.eflags(), 0x3002);

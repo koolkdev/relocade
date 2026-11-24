@@ -17,6 +17,7 @@ pub use limit::SegmentLimit;
 pub use packed::Descriptor;
 pub use profile::SegmentProfile;
 pub use query::{SegmentDescriptorInfo, SegmentDescriptorInfoValues};
+pub use relocade_x86_profile::SegmentDefaultSize;
 pub(crate) use selection::SegmentSelection;
 pub use tables::DescriptorTables;
 
@@ -33,25 +34,4 @@ pub enum Segment {
 
 impl Segment {
     pub const ALL: [Self; 6] = [Self::Es, Self::Cs, Self::Ss, Self::Ds, Self::Fs, Self::Gs];
-}
-
-/// The D/B attribute, independent of a segment's base and effective limit.
-/// It selects CS instruction defaults, SS stack-pointer width, or the upper
-/// bound of an expand-down data segment. It does not size an ordinary data segment.
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub enum SegmentDefaultSize {
-    Bits16,
-    Bits32,
-}
-
-impl SegmentDefaultSize {
-    pub(crate) fn for_profile(profile: crate::ExecutionProfile) -> Self {
-        match profile {
-            crate::ExecutionProfile::Protected(
-                SegmentProfile::Flat32 | SegmentProfile::Segmented32,
-            ) => Self::Bits32,
-            crate::ExecutionProfile::Protected(SegmentProfile::Segmented16)
-            | crate::ExecutionProfile::Real16 => Self::Bits16,
-        }
-    }
 }

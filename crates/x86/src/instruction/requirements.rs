@@ -4,7 +4,7 @@ use crate::{
     execution::ExecutionBuilder,
     profile::control_assumptions,
     state::{access::cpu_location, cr0},
-    CpuFeature, CpuMode, Exception, ExecutionTarget, FlagBytes, PrivilegeLevel,
+    CompilerConfig, CpuFeature, CpuMode, EntryAssumptions, Exception, FlagBytes, PrivilegeLevel,
 };
 use relocade_compiler::{BuildError, Val, I1, I8};
 
@@ -59,15 +59,17 @@ impl Requirements {
 
     /// A snapshot ends at a privilege fault only when its entry guarantees
     /// establish every operand of the check. Otherwise execution decides.
-    pub(super) fn always_faults(self, target: ExecutionTarget) -> bool {
+    pub(super) fn always_faults(self, config: CompilerConfig) -> bool {
         self.features
             .iter()
-            .any(|&feature| !target.cpu_model.supports(feature))
-            || self.guaranteed_privilege_fault(target).unwrap_or(false)
+            .any(|&feature| !config.cpu_model.supports(feature))
+            || self
+                .guaranteed_privilege_fault(config.entry)
+                .unwrap_or(false)
     }
 
-    fn guaranteed_privilege_fault(self, target: ExecutionTarget) -> Option<bool> {
-        let facts = || control_assumptions(target);
+    fn guaranteed_privilege_fault(self, entry: EntryAssumptions) -> Option<bool> {
+        let facts = || control_assumptions(entry);
         let mode = || {
             let pe = cpu_location!(cr0).known_bits(facts(), cr0::PROTECTION_ENABLE)?;
             let vm = cpu_location!(flags.bytes.vm).known_bits(facts(), FlagBytes::BOOLEAN_MASK)?;

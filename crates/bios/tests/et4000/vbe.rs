@@ -17,7 +17,7 @@ impl Firmware {
         state.registers.esp = 0x8000;
         state.flags.set_eflags(2);
         let config =
-            CpuConfig::new(Compiler::new(ExecutionProfile::Real16).target(), state).unwrap();
+            CpuConfig::new(Compiler::new(ExecutionProfile::Real16).config(), state).unwrap();
         let mut cpu = Cpu::new(self.memory.clone(), config, self.io.clone())
             .await
             .unwrap();

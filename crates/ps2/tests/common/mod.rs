@@ -16,7 +16,7 @@ pub async fn runner(clock: Clock) -> (Runner, WakeHost<ExecutionInterrupt>, Mach
     )
     .unwrap();
     let cpu = CpuConfig::new(
-        Compiler::new(ExecutionProfile::Real16).target(),
+        Compiler::new(ExecutionProfile::Real16).config(),
         CpuState {
             eip: 0x100,
             ..CpuState::real_mode()

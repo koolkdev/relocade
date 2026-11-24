@@ -137,7 +137,7 @@ async fn check_device_access() {
         let mut segments = Segments::real_mode();
         segments.ds = SegmentRegister::real_mode(Segment::Ds, 0xffff);
         let config = support::configuration(
-            compiler.target(),
+            compiler.config(),
             CpuState {
                 eip: 0x100,
                 segments,

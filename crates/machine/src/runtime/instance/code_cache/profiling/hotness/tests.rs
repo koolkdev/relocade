@@ -124,7 +124,7 @@ async fn replace_fallback() {
     state.registers.esp = 0x7fe;
     let mut cpu = Cpu::new(
         memory,
-        CpuConfig::new(compiler.target(), state).unwrap(),
+        CpuConfig::new(compiler.config(), state).unwrap(),
         Default::default(),
     )
     .await

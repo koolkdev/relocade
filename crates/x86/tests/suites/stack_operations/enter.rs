@@ -211,7 +211,7 @@ fn protected_enter_allocates_over_mmio_without_accessing_the_device() {
         machine::{expected, expected_steps, Exit, Image, Step},
         step::TestModule,
     };
-    use relocade_x86::{Compiler, MemoryBackend, SegmentProfile};
+    use relocade_x86::{Compiler, MemoryBackend};
 
     let code = [
         0xc8, 0, 0x10, 0, // ENTER 1000h,0
@@ -246,12 +246,18 @@ fn protected_enter_allocates_over_mmio_without_accessing_the_device() {
             exit: Exit::Dispatch(after.eip),
         },
     ];
-    let compiler =
-        Compiler::new(SegmentProfile::Flat32).with_memory_backend(MemoryBackend::PhysicalBus);
+    let compiler = Compiler::new(crate::CompilerConfig::new(
+        crate::EntryAssumptions {
+            interrupt_flag: None,
+            iopl: None,
+            ..crate::EntryAssumptions::FLAT32
+        },
+        MemoryBackend::PhysicalBus,
+    ));
     let block = TestModule::new(&compiler.compile_block(image.cpu.eip, &code, 2).unwrap());
     assert_eq!(block.observe(&input, 1), expected(&image, &steps[1..]));
 
-    let interpreter = TestModule::interpreter_with_target(compiler.target());
+    let interpreter = TestModule::interpreter_with_target(compiler.config());
     assert_eq!(
         interpreter.observe(&input, 2),
         expected_steps(&image, &steps)

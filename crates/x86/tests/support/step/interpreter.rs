@@ -2,8 +2,8 @@
 
 use super::TestModule;
 use crate::{
-    build_interpreter_with_memory, Compiler, ExecutionProfile, ExecutionTarget, MemoryBackend,
-    SegmentProfile,
+    build_interpreter_with_config, Compiler, CompilerConfig, EntryAssumptions, ExecutionProfile,
+    MemoryBackend, SegmentProfile,
 };
 use relocade_test_support::Module;
 use std::{
@@ -24,35 +24,42 @@ impl TestModule {
     }
 
     pub(crate) fn interpreter_with_profile(profile: impl Into<ExecutionProfile>) -> &'static Self {
-        Self::interpreter_with_target(Compiler::new(profile).target())
+        Self::interpreter_with_target(Compiler::new(profile).config())
     }
 
-    pub(crate) fn interpreter_with_target(target: ExecutionTarget) -> &'static Self {
+    pub(crate) fn interpreter_with_target(target: CompilerConfig) -> &'static Self {
         Self::cached_interpreter(target, InterpreterEntry::Step)
     }
 
     pub(crate) fn interpreter_run_with_profile(
         profile: impl Into<ExecutionProfile>,
     ) -> &'static Self {
-        Self::interpreter_run_with_target(Compiler::new(profile).target())
+        Self::interpreter_run_with_target(Compiler::new(profile).config())
     }
 
-    pub(crate) fn interpreter_run_with_target(target: ExecutionTarget) -> &'static Self {
+    pub(crate) fn interpreter_run_with_target(target: CompilerConfig) -> &'static Self {
         Self::cached_interpreter(target, InterpreterEntry::Run)
     }
 
-    fn cached_interpreter(target: ExecutionTarget, entry: InterpreterEntry) -> &'static Self {
-        static CODE: Fixtures<(ExecutionProfile, MemoryBackend), Arc<Module>> = Fixtures::new();
-        static TARGETS: Fixtures<(ExecutionTarget, InterpreterEntry), TestModule> = Fixtures::new();
+    fn cached_interpreter(target: CompilerConfig, entry: InterpreterEntry) -> &'static Self {
+        static CODE: Fixtures<(EntryAssumptions, MemoryBackend), Arc<Module>> = Fixtures::new();
+        static TARGETS: Fixtures<(CompilerConfig, InterpreterEntry), TestModule> = Fixtures::new();
         TARGETS.get((target, entry), || {
-            let module = CODE.get((target.profile, target.memory_backend), || {
+            let artifact = if target.entry == EntryAssumptions::REAL_MODE
+                && target.memory_backend == MemoryBackend::PhysicalBus
+            {
+                EntryAssumptions::LIVE
+            } else {
+                target.entry
+            };
+            let module = CODE.get((artifact, target.memory_backend), || {
                 if let Some(bytes) =
-                    relocade_interpreter::module_with_memory(target.profile, target.memory_backend)
+                    relocade_interpreter::module_for(artifact, target.memory_backend)
                 {
                     Arc::new(Module::new(bytes))
                 } else {
                     let program =
-                        build_interpreter_with_memory(target.profile, target.memory_backend)
+                        build_interpreter_with_config(target.entry, target.memory_backend)
                             .expect("build interpreter for the requested memory backend");
                     Arc::new(Module::new(&program.compile().unwrap()))
                 }

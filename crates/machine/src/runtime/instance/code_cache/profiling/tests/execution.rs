@@ -24,7 +24,7 @@ async fn cpu() -> Cpu {
     let config = CpuConfig::new(
         Compiler::new(ExecutionProfile::Real16)
             .with_instruction_budgets(true)
-            .target(),
+            .config(),
         CpuState {
             eip: 0x100,
             ..CpuState::real_mode()
@@ -167,7 +167,7 @@ async fn far_calls() {
         if compiled_caller {
             let mut reader = memory.code_reader();
             let decoded = crate::compiler::discover_functions(
-                compiler.target(),
+                compiler.config(),
                 [FunctionRequest {
                     entry: target(0x100),
                     limits: DiscoveryLimits::default(),

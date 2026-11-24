@@ -40,7 +40,7 @@ async fn guest_port_io() {
         ];
         memory.view().write(0x100, &code).unwrap();
         let config = CpuConfig::new(
-            compiler.target(),
+            compiler.config(),
             CpuState {
                 eip: 0x100,
                 ..CpuState::real_mode()

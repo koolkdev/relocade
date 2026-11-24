@@ -27,7 +27,7 @@ mod transfers;
 async fn guest(io: IoBus, code: &[u8], entries: &[usize], compiled: bool) -> Cpu {
     let compiler = Compiler::new(ExecutionProfile::Real16);
     let config = support::configuration(
-        compiler.target(),
+        compiler.config(),
         CpuState {
             eip: 0x100,
             ..CpuState::real_mode()

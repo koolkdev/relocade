@@ -4,20 +4,7 @@ use crate::{Exception, SegmentRegister};
 
 use super::{Segment, SegmentDefaultSize, SegmentLimit};
 
-/// Architectural privilege levels, ordered from most to least privileged.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[repr(u8)]
-pub enum PrivilegeLevel {
-    Ring0,
-    Ring1,
-    Ring2,
-    Ring3,
-}
-
-impl PrivilegeLevel {
-    /// Selectors and IOPL encode a privilege level in two bits.
-    pub(crate) const MASK: u8 = 0b11;
-}
+pub use relocade_x86_profile::PrivilegeLevel;
 
 /// Code/data descriptor types supported by user-mode segment resolution.
 /// Conformance affects loading and verifying a descriptor, not cached accesses.

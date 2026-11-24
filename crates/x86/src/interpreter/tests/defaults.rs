@@ -11,9 +11,12 @@ use std::sync::LazyLock;
 
 fn interpreter() -> &'static TestModule {
     static MODULE: LazyLock<TestModule> = LazyLock::new(|| {
-        let target = crate::Compiler::new(SegmentProfile::Segmented32).target();
-        let guarantees = crate::profile::EntryGuarantees::new(target, None);
-        let bytes = super::super::build(target, guarantees)
+        let config = crate::CompilerConfig::from(SegmentProfile::Segmented32);
+        let entry = crate::EntryAssumptions {
+            code_default_size: None,
+            ..config.entry
+        };
+        let bytes = super::super::build_interpreter_with_config(entry, config.memory_backend)
             .unwrap()
             .compile()
             .unwrap();
