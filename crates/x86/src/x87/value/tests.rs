@@ -186,3 +186,67 @@ fn exact_binary64_views_follow_selection_and_indefinite_replacement() {
         }
     }
 }
+
+#[test]
+fn integer_store_validates_indefinite_and_mixed_origins() {
+    use crate::floating::RoundingMode;
+
+    let mut program = Program::new();
+    let function = program.function::<fn(u64, bool, bool) -> (u64, bool, u64, bool)>(|body, _| {
+        let integer = ExtendedValue::from_signed_integer(&Val::<I32>::from(-7))
+            .or_indefinite(&body.parameter::<I1>(2)?);
+        let other = ExtendedValue::from_binary(BinaryFormat::Binary64, body.parameter(0)?);
+        let mixed = integer.select(&body.parameter::<I1>(1)?, &other);
+        assert!(mixed.integer_origin.is_none());
+        let rounding = RoundingMode::new(0.into());
+        let integer = integer.to_signed_integer::<I64>(&rounding);
+        let mixed = mixed.to_signed_integer::<I64>(&rounding);
+        body.return_((integer.bits, integer.invalid, mixed.bits, mixed.invalid))
+    });
+    program.export("store", function).unwrap();
+    let module = step::TestModule::new(&CompiledModule {
+        bytes: program.compile().unwrap(),
+        entry: "store".into(),
+        execution_target: None,
+    });
+    for (other, other_result, other_invalid) in [
+        (1.5_f64, 2, false),
+        (f64::INFINITY, i64::MIN, true),
+        (f64::NEG_INFINITY, i64::MIN, true),
+        (f64::NAN, i64::MIN, true),
+    ] {
+        for take_integer in [false, true] {
+            for invalid in [false, true] {
+                let input = step::Input {
+                    arguments: vec![
+                        step::Argument::I64(other.to_bits() as i64),
+                        step::Argument::I32(i32::from(take_integer)),
+                        step::Argument::I32(i32::from(invalid)),
+                    ],
+                    ..step::Input::new(&[])
+                };
+                let integer = if invalid { i64::MIN } else { -7 };
+                let (result, invalid_mixed) = if take_integer {
+                    (integer, invalid)
+                } else {
+                    (other_result, other_invalid)
+                };
+                assert_eq!(
+                    module.observe(&input, 1).events,
+                    vec![step::Event::Return {
+                        outcome: step::Outcome::Returned(vec![
+                            step::Argument::I64(integer),
+                            step::Argument::I32(i32::from(invalid)),
+                            step::Argument::I64(result),
+                            step::Argument::I32(i32::from(invalid_mixed)),
+                        ]),
+                        snapshot: step::Snapshot {
+                            cpu: vec![],
+                            guest: None
+                        },
+                    }]
+                );
+            }
+        }
+    }
+}
