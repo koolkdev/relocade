@@ -3,10 +3,11 @@ use relocade_win32::{
     Signature, StackReader, Win32Args,
 };
 use relocade_x86::CpuState;
+use std::cell::RefCell;
 
 const BASE: u32 = 0x7000_1000;
 
-struct Page([u8; 64]);
+struct Page(RefCell<[u8; 64]>);
 
 impl Page {
     fn range(
@@ -16,7 +17,9 @@ impl Page {
         write: bool,
     ) -> Result<std::ops::Range<usize>, Exception> {
         let start = address.wrapping_sub(BASE) as usize;
-        let end = start.checked_add(len).filter(|end| *end <= self.0.len());
+        let end = start
+            .checked_add(len)
+            .filter(|end| *end <= self.0.borrow().len());
         Ok(start..end.ok_or(Exception::PageFault {
             linear_address: address,
             error_code: if write { 6 } else { 4 },
@@ -26,13 +29,13 @@ impl Page {
 
 impl GuestMemory for Page {
     fn read(&self, address: u32, bytes: &mut [u8]) -> Result<(), Exception> {
-        bytes.copy_from_slice(&self.0[self.range(address, bytes.len(), false)?]);
+        bytes.copy_from_slice(&self.0.borrow()[self.range(address, bytes.len(), false)?]);
         Ok(())
     }
 
-    fn write(&mut self, address: u32, bytes: &[u8]) -> Result<(), Exception> {
+    fn write(&self, address: u32, bytes: &[u8]) -> Result<(), Exception> {
         let range = self.range(address, bytes.len(), true)?;
-        self.0[range].copy_from_slice(bytes);
+        self.0.borrow_mut()[range].copy_from_slice(bytes);
         Ok(())
     }
 }
@@ -65,14 +68,14 @@ fn callback_frame_uses_guest_slot_widths_and_the_live_continuation() {
             ..CpuState::default()
         };
         cpu.registers.esp = BASE + 64;
-        let mut page = Page([0xff; 64]);
+        let page = Page([0xff; 64].into());
         let callback = signature
-            .enter_callback(&mut cpu, &mut page, 0x405000, &args)
+            .enter_callback(&mut cpu, &page, 0x405000, &args)
             .unwrap();
         assert_eq!(cpu.eip, 0x405000);
         assert_eq!(cpu.registers.esp, BASE + 44);
         assert_eq!(
-            &page.0[44..],
+            &page.0.borrow()[44..],
             &[
                 0xcd, 0xab, 0x34, 0x12, 0xf9, 0xff, 0xff, 0xff, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66,
                 0x77, 0x88, 0, 0, 0xdc, 0xfe,
@@ -95,7 +98,7 @@ fn bad_callback_stack_preserves_cpu_and_memory() {
         ..CpuState::default()
     };
     cpu.registers.esp = BASE + 8;
-    let mut page = Page([0xa5; 64]);
+    let page = Page([0xa5; 64].into());
     let args = Mixed {
         byte: 1,
         wide: 2,
@@ -103,7 +106,7 @@ fn bad_callback_stack_preserves_cpu_and_memory() {
     };
     assert_eq!(
         signature
-            .enter_callback(&mut cpu, &mut page, 0x402000, &args)
+            .enter_callback(&mut cpu, &page, 0x402000, &args)
             .err(),
         Some(Exception::PageFault {
             linear_address: BASE - 12,
@@ -111,18 +114,18 @@ fn bad_callback_stack_preserves_cpu_and_memory() {
         }),
     );
     assert_eq!((cpu.eip, cpu.registers.esp), (0x400100, BASE + 8));
-    assert_eq!(page.0, [0xa5; 64]);
+    assert_eq!(*page.0.borrow(), [0xa5; 64]);
 }
 
 #[test]
 fn cdecl_tail_reads_promoted_slots_and_retries_the_faulting_argument() {
     #[derive(Win32Args)]
     struct Fixed(u16);
-    let mut page = Page([0; 64]);
-    page.0[44..48].copy_from_slice(&[0x34, 0x12, 0xab, 0xcd]);
-    page.0[48..52].copy_from_slice(&(-42i32).to_le_bytes());
-    page.0[52..60].copy_from_slice(&1.5f64.to_le_bytes());
-    page.0[60..].copy_from_slice(&0xf123_4567u32.to_le_bytes());
+    let mut page = Page([0; 64].into());
+    page.0.get_mut()[44..48].copy_from_slice(&[0x34, 0x12, 0xab, 0xcd]);
+    page.0.get_mut()[48..52].copy_from_slice(&(-42i32).to_le_bytes());
+    page.0.get_mut()[52..60].copy_from_slice(&1.5f64.to_le_bytes());
+    page.0.get_mut()[60..].copy_from_slice(&0xf123_4567u32.to_le_bytes());
     let mut stack = StackReader::at_entry(&page, BASE + 40);
     assert_eq!(Fixed::read(&mut stack).unwrap().0, 0x1234);
     let mut tail = stack.varargs();

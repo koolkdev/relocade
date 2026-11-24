@@ -54,7 +54,7 @@ impl<A: Arguments, R: ReturnValue> Signature<A, R> {
     pub fn enter_callback(
         &self,
         cpu: &mut CpuState,
-        memory: &mut dyn GuestMemory,
+        memory: &dyn GuestMemory,
         target: u32,
         arguments: &A,
     ) -> Result<Callback<R>, Exception> {

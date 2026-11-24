@@ -4,7 +4,7 @@ use crate::{Argument, Exception, Promoted};
 /// checks its complete span. A failed write leaves guest memory untouched.
 pub trait GuestMemory {
     fn read(&self, address: u32, bytes: &mut [u8]) -> Result<(), Exception>;
-    fn write(&mut self, address: u32, bytes: &[u8]) -> Result<(), Exception>;
+    fn write(&self, address: u32, bytes: &[u8]) -> Result<(), Exception>;
 }
 
 /// Reads fixed parameters in declaration order, starting after the near return address.

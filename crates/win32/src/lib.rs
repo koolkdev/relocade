@@ -4,6 +4,41 @@
 //! to a guest callback. Addresses are flat 32-bit virtual addresses. The embedding
 //! owns the address space, dispatch and lifetime of suspended calls.
 //!
+//! The `#[win32_export]` attribute preserves an ordinary Rust function and
+//! defines its parameter record and [`Export`] binding in the type namespace.
+//! Exports default to `stdcall`. Use `abi = "cdecl"` for caller cleanup and
+//! `name = "..."` to select the DLL symbol. Both sync and async handlers can
+//! return an integer, a guest pointer, `()`, or a `Result` carrying [`Exception`].
+//! Integer and pointer results use EAX or EDX:EAX. Fixed floating-point
+//! parameters use their four- or eight-byte guest stack representations.
+//!
+//! ```
+//! use relocade_win32::{win32_export, Exception, Export, GuestMemory, GuestPtr};
+//!
+//! #[win32_export(name = "ReadCounter")]
+//! fn read_counter(#[memory] memory: &dyn GuestMemory, address: GuestPtr<u32>)
+//!     -> Result<u32, Exception>
+//! {
+//!     let mut bytes = [0; 4];
+//!     memory.read(address.address(), &mut bytes)?;
+//!     Ok(u32::from_le_bytes(bytes))
+//! }
+//! assert_eq!(read_counter::NAME, "ReadCounter");
+//! assert_eq!(read_counter::SIGNATURE.stub(), [0x90, 0x90, 0xc2, 4, 0]);
+//! ```
+//!
+//! Mark an application resource with `#[context]` on a shared reference and
+//! pass its owner to [`Exports::bind`]. A cdecl service can receive a trailing
+//! `#[varargs] tail: VaList` and read promoted arguments through guest memory.
+//! The guest's import slot and dynamically obtained function pointer can both
+//! point to the same guest address once [`Exports::install`] publishes the hooks.
+//!
+//! ```compile_fail
+//! use relocade_win32::{win32_export, VaList};
+//! #[win32_export]
+//! fn bad_cleanup(#[varargs] tail: VaList) {}
+//! ```
+//!
 //! Define callback arguments in declaration order. Each field occupies a guest
 //! stack slot, independently of the Rust record's layout.
 //!
@@ -28,11 +63,15 @@
 
 #![forbid(unsafe_code)]
 
+mod export;
+mod exports;
 mod signature;
 mod stack;
 mod value;
 
-pub use relocade_derive::Win32Args;
+pub use export::{Export, ExportResult};
+pub use exports::Exports;
+pub use relocade_derive::{win32_export, Win32Args};
 pub use relocade_x86::Exception;
 pub use signature::{Callback, CallingConvention, Signature};
 pub use stack::{Arguments, GuestMemory, StackReader, VaList};

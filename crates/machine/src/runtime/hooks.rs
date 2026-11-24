@@ -1,5 +1,6 @@
 use futures_util::future::LocalBoxFuture;
 use relocade_compiler::{Func, Program};
+use relocade_x86::{abi, ExecutionExitValues, HostExit};
 use std::{
     future::Future,
     rc::Rc,
@@ -25,9 +26,9 @@ where
     }
 }
 
-/// Behavior installed at a packed real-mode CS:IP key. Each hook is independently
-/// replaceable. [`Hook::host`] supplies an ordinary async Rust handler;
-/// [`Hook::block`] builds or imports a Wasm execution block.
+/// Behavior installed at a dispatch key. Real16 uses packed CS:IP keys.
+/// Each hook can be replaced independently. [`Hook::host`] supplies an async
+/// Rust handler. [`Hook::block`] builds or imports a Wasm execution block.
 ///
 /// ```
 /// use relocade_machine::{CpuStateAccess, Hook, Memory, ExitHandle};
@@ -78,6 +79,28 @@ impl Hook {
             key,
             implementation: Implementation::Host(Rc::new(handler)),
         }
+    }
+
+    /// Builds the three dispatch entries of a resumable service. The environment
+    /// supplies their keys, sets the live IP to the resume position before an
+    /// await and points it at the guest return instruction on normal completion.
+    pub fn resumable<F>(entry: u32, resume: u32, completion: u32, handler: F) -> [Self; 3]
+    where
+        F: AsyncFn() + 'static,
+    {
+        [
+            Self::host(entry, handler),
+            Self::block(resume, |program| {
+                program
+                    .function::<abi::ExecutionSignature>(|body, ()| {
+                        body.return_(ExecutionExitValues::host(HostExit::Resume))
+                    })
+                    .into()
+            }),
+            Self::block(completion, |program| {
+                program.import_function(abi::INTERPRET)
+            }),
+        ]
     }
 
     /// Builds or imports a `() -> ExecutionExit` function during installation.

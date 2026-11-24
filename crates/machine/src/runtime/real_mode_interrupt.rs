@@ -24,7 +24,6 @@ pub use relocade_x86::{Segment, SegmentRegister};
 
 use super::Hook;
 use crate::{CpuStateAccess, MemoryView};
-use relocade_x86::{abi, ExecutionExitValues, HostExit};
 use std::future::Future;
 
 /// Entry NOP, resume NOP, and completion IRET inside the environment's service code.
@@ -48,25 +47,13 @@ where
     let entry = FarPointer::from_packed(key);
     let resume = entry.wrapping_add(1).packed();
     let return_entry = entry.wrapping_add(2).packed();
-    [
-        Hook::host(key, async move || {
-            let resume_ip = (cpu.eip() as u16).wrapping_add(1);
-            cpu.set_eip(u32::from(resume_ip));
-            handler().await;
-            let return_ip = (cpu.eip() as u16).wrapping_add(1);
-            cpu.set_eip(u32::from(return_ip));
-        }),
-        Hook::block(resume, |program| {
-            program
-                .function::<abi::ExecutionSignature>(|body, ()| {
-                    body.return_(ExecutionExitValues::host(HostExit::Resume))
-                })
-                .into()
-        }),
-        Hook::block(return_entry, |program| {
-            program.import_function(abi::INTERPRET)
-        }),
-    ]
+    Hook::resumable(key, resume, return_entry, async move || {
+        let resume_ip = (cpu.eip() as u16).wrapping_add(1);
+        cpu.set_eip(u32::from(resume_ip));
+        handler().await;
+        let return_ip = (cpu.eip() as u16).wrapping_add(1);
+        cpu.set_eip(u32::from(return_ip));
+    })
 }
 
 /// Enables live IF for an ordinary composed operation, restoring it only after
