@@ -197,14 +197,19 @@ fn series(
     let parts = body.loop_::<(I32, DoubleShape, DoubleShape), DoubleShape>(
         (&first, initial.parts(), initial.parts()),
         |mut iteration, labels, (index, term, sum)| {
-            iteration.if_(index.eq(first.add(34)), |done| {
-                done.branch(&labels.exit, sum.clone())
-            })?;
+            let term = DoubleDouble::from_parts(term);
+            let sum = DoubleDouble::from_parts(sum);
+            iteration.if_(
+                index
+                    .eq(first.add(34))
+                    .or(sum.absorbs_series_tail(&term, &square)),
+                |done| done.branch(&labels.exit, sum.parts()),
+            )?;
             let denominator = index.mul(index.add(1)).unsigned().to_f64();
-            let term = DoubleDouble::from_parts(term)
+            let term = term
                 .mul(&square)
                 .divide(&DoubleDouble::from_f64(denominator));
-            let sum = DoubleDouble::from_parts(sum).add(&term);
+            let sum = sum.add(&term);
             iteration.branch(&labels.again, (index.add(2), term.parts(), sum.parts()))
         },
     )?;

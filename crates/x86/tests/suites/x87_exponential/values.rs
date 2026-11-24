@@ -44,6 +44,15 @@ pub(super) const VALUES: &[Reference] = &[
         nearest_up: false,
         tiny: false,
     },
+    // The result is about 0.000286 ulp above the midpoint. Stopping when
+    // the term is smaller than 2^-65 of the leading sum rounds downward.
+    Reference {
+        input: (0xaa01_d9e1_3887_4ec6, 0x3ffe),
+        lower: (0x95a6_5536_58b0_28c5, 0x3ffe),
+        upper: (0x95a6_5536_58b0_28c6, 0x3ffe),
+        nearest_up: true,
+        tiny: false,
+    },
     Reference {
         input: (0x8000000000000000, 0xbffe),
         lower: (0x95f619980c4336f7, 0xbffd),
