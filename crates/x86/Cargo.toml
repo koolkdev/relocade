@@ -7,7 +7,7 @@ publish.workspace = true
 autotests = false
 
 [dependencies]
-relocade-x86-profile = { path = "../x86-profile" }
+relocade-x86-config = { path = "../x86-config" }
 relocade-wasm-bindings = { path = "../wasm-bindings" }
 relocade-compiler = { path = "../compiler" }
 

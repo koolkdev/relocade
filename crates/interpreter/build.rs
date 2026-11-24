@@ -1,6 +1,6 @@
 use futures_util::future::join;
 use relocade_workers::{Pool, Thread};
-use relocade_x86::{build_interpreter_with_config, EntryAssumptions, MemoryBackend};
+use relocade_x86::{build_interpreter, EntryAssumptions, MemoryBackend};
 use std::{env, error::Error, fs, path::PathBuf, thread};
 
 #[path = "src/catalog.rs"]
@@ -36,7 +36,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let out = PathBuf::from(env::var_os("OUT_DIR").expect("Cargo output directory"));
     let ((), result) = pollster::block_on(join(pool.run(), async move {
         for (entry, backend, filename) in catalog::interpreter_catalog!(filename) {
-            let program = build_interpreter_with_config(entry, backend)?;
+            let program = build_interpreter(entry, backend)?;
             let bytes = program.compile_with(&executor).await?;
             fs::write(out.join(filename), bytes)?;
         }

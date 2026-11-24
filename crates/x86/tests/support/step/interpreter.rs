@@ -2,7 +2,7 @@
 
 use super::TestModule;
 use crate::support::config::FLAT32;
-use crate::{build_interpreter_with_config, EntryAssumptions, MemoryBackend};
+use crate::{build_interpreter, EntryAssumptions, MemoryBackend};
 use relocade_test_support::Module;
 use relocade_x86::CompilerConfig;
 use std::{
@@ -44,13 +44,12 @@ impl TestModule {
             };
             let module = CODE.get((entry_assumptions, config.memory_backend), || {
                 if let Some(bytes) =
-                    relocade_interpreter::module_for(entry_assumptions, config.memory_backend)
+                    relocade_interpreter::module(entry_assumptions, config.memory_backend)
                 {
                     Arc::new(Module::new(bytes))
                 } else {
-                    let program =
-                        build_interpreter_with_config(entry_assumptions, config.memory_backend)
-                            .expect("build interpreter for the requested memory backend");
+                    let program = build_interpreter(entry_assumptions, config.memory_backend)
+                        .expect("build interpreter for the requested memory backend");
                     Arc::new(Module::new(&program.compile().unwrap()))
                 }
             });

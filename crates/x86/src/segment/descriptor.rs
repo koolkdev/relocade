@@ -4,7 +4,7 @@ use crate::{Exception, SegmentRegister};
 
 use super::{Segment, SegmentDefaultSize, SegmentLimit};
 
-pub use relocade_x86_profile::PrivilegeLevel;
+pub use relocade_x86_config::PrivilegeLevel;
 
 /// Code/data descriptor types supported by user-mode segment resolution.
 /// Conformance affects loading and verifying a descriptor, not cached accesses.

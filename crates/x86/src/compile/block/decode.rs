@@ -71,7 +71,7 @@ impl DecodedBlock {
     }
 
     /// Appends a contiguous instruction with the same decode width. Compilation
-    /// checks instruction boundaries against the selected execution target.
+    /// checks instruction boundaries using the supplied compiler configuration.
     pub fn push(&mut self, instruction: SnapshotInstruction) -> Result<(), BlockError> {
         let expected = self.address.eip().wrapping_add(self.byte_len as u32);
         if instruction.eip() != expected {

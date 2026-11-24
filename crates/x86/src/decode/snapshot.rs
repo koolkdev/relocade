@@ -48,10 +48,10 @@ impl SnapshotInstruction {
         self.code_default_size
     }
 
-    /// Classifies transfers and block boundaries, including faults known from the target.
-    pub fn flow(&self, config: impl Into<CompilerConfig>) -> InstructionFlow {
+    /// Classifies transfers and block boundaries, including faults established by the entry assumptions and CPU features.
+    pub fn flow(&self, config: CompilerConfig) -> InstructionFlow {
         self.form
-            .flow(self.fields.immediates, self.next_eip, config.into())
+            .flow(self.fields.immediates, self.next_eip, config)
     }
 
     /// Encoded destination for a direct CALL. Indirect calls and other instructions return `None`.

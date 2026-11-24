@@ -36,13 +36,13 @@ impl Dispatch {
 }
 
 impl Compiler {
-    /// Compiles lookup of packed Real16 CS:IP entries. Hooks, compiled blocks and
+    /// Compiles lookup of packed real-mode CS:IP entries. Hooks, compiled blocks and
     /// rejected candidates share one map. Protected execution goes directly to the
     /// interpreter. Real-mode misses enter the interpreter and unresolved calls with
     /// a 16-bit IP also contribute to profiling.
     ///
     /// # Panics
-    /// Panics for a dispatcher target other than Real16.
+    /// Panics unless the compiler configuration guarantees real mode.
     pub fn compile_dispatcher(&self) -> Result<CompiledModule, BuildError> {
         assert_eq!(self.config.entry.mode, Some(ExecutionMode::Real));
         let mut program = Program::new();

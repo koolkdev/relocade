@@ -1,8 +1,8 @@
 //! Admission shared by block boundaries and instruction execution.
 
 use crate::{
+    entry::control_assumptions,
     execution::ExecutionBuilder,
-    profile::control_assumptions,
     state::{access::cpu_location, cr0},
     CompilerConfig, CpuFeature, CpuMode, EntryAssumptions, Exception, FlagBytes, PrivilegeLevel,
 };

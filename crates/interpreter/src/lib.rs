@@ -2,7 +2,7 @@
 //! Each module exports both `step` and `run`; CPU features remain runtime inputs.
 
 mod catalog;
-pub use relocade_x86_profile::{EntryAssumptions, ExecutionProfile, MemoryBackend, SegmentProfile};
+pub use relocade_x86_config::{EntryAssumptions, MemoryBackend};
 
 macro_rules! wasm {
     ($file:literal) => {
@@ -14,34 +14,16 @@ static MODULES: &[(EntryAssumptions, MemoryBackend, &[u8])] = &catalog::interpre
 
 /// The PC interpreter reads mode and loaded segments from the CPU on the physical bus.
 pub fn pc() -> &'static [u8] {
-    module_for(EntryAssumptions::LIVE, MemoryBackend::PhysicalBus)
+    module(EntryAssumptions::LIVE, MemoryBackend::PhysicalBus)
         .expect("the live PC interpreter is always packaged")
 }
 
 /// Returns the packaged interpreter built for these entry guarantees and memory interface.
-pub fn module_for(entry: EntryAssumptions, backend: MemoryBackend) -> Option<&'static [u8]> {
+pub fn module(entry: EntryAssumptions, backend: MemoryBackend) -> Option<&'static [u8]> {
     MODULES
         .iter()
         .find(|(required, memory, _)| *required == entry && *memory == backend)
         .map(|(_, _, bytes)| *bytes)
-}
-
-/// Looks up a packaged interpreter using its historical profile.
-pub fn module(profile: ExecutionProfile) -> &'static [u8] {
-    match profile {
-        ExecutionProfile::Real16 => pc(),
-        ExecutionProfile::Protected(profile) => {
-            module_for(profile.into(), MemoryBackend::HostPageTable)
-                .expect("every fixed protected interpreter is packaged")
-        }
-    }
-}
-
-pub fn module_with_memory(
-    profile: ExecutionProfile,
-    backend: MemoryBackend,
-) -> Option<&'static [u8]> {
-    (backend == MemoryBackend::default_for(profile)).then(|| module(profile))
 }
 
 #[cfg(test)]
@@ -51,10 +33,10 @@ mod tests {
     #[test]
     fn physical_pc_artifact_has_live_entry_guarantees() {
         assert!(std::ptr::eq(
-            module_for(EntryAssumptions::LIVE, MemoryBackend::PhysicalBus).unwrap(),
+            module(EntryAssumptions::LIVE, MemoryBackend::PhysicalBus).unwrap(),
             pc()
         ));
-        assert!(module_for(EntryAssumptions::REAL_MODE, MemoryBackend::PhysicalBus).is_none());
-        assert!(module_for(EntryAssumptions::LIVE, MemoryBackend::HostPageTable).is_none());
+        assert!(module(EntryAssumptions::REAL_MODE, MemoryBackend::PhysicalBus).is_none());
+        assert!(module(EntryAssumptions::LIVE, MemoryBackend::HostPageTable).is_none());
     }
 }

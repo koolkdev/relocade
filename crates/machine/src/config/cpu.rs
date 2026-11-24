@@ -100,7 +100,7 @@ impl CpuExecution {
                         .into_iter()
                         .all(|segment| self.accepts_segment(mode, segment, &cpu.segments[segment]))
             }
-            Self::Fixed(config) => cpu.is_compatible_with(config),
+            Self::Fixed(config) => cpu.is_compatible_with(config.entry),
         };
         if !compatible {
             return Err(ConfigurationError::IncompatibleCpu);

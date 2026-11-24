@@ -63,7 +63,7 @@ fn predicates_read_live_control_bits_without_changing_the_snapshot() {
 
 #[test]
 fn entry_guarantees_fold_control_and_interrupt_flag_reads() {
-    use crate::{flags::Flag, profile::EntryGuarantees};
+    use crate::{entry::EntryGuarantees, flags::Flag};
 
     for (config, fixed_interrupt_flags) in [
         (REAL16, false),
@@ -115,7 +115,7 @@ fn segment_and_privilege_reads_share_the_same_selector() {
     let function = program.function::<fn() -> u32>(move |mut body, ()| {
         let mut state = State::for_entry(
             &cpu,
-            &crate::profile::EntryGuarantees::for_entry(FLAT32.entry),
+            &crate::entry::EntryGuarantees::for_entry(FLAT32.entry),
         );
         let selector = state
             .segments()
