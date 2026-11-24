@@ -10,13 +10,11 @@ pub(super) async fn dispatcher<C: WasmCompiler>(
     Ok(compiler.compile(&dispatcher.bytes).await?)
 }
 
-pub(super) async fn interpreter<C: WasmCompiler>(
+pub(super) async fn pc_interpreter<C: WasmCompiler>(
     compiler: &C,
     cache: Option<&ModuleCache<C::Module>>,
-    target: ExecutionTarget,
 ) -> Result<C::Module> {
-    let bytes = relocade_interpreter::module_with_memory(target.profile, target.memory_backend)
-        .ok_or(crate::ConfigurationError::UnsupportedMemoryBackend)?;
+    let bytes = relocade_interpreter::pc();
     Ok(if let Some(cache) = cache {
         cache
             .get_or_compile(bytes, |bytes| compiler.compile(bytes))

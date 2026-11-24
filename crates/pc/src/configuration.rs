@@ -2,9 +2,7 @@ use crate::CONVENTIONAL_MEMORY_SIZE;
 use relocade_dma::Dma;
 use relocade_machine::{CpuConfig, GuestTimeConfig, MachineConfig, Runner};
 use relocade_pic::Pic;
-use relocade_x86::{
-    Compiler, CpuState, ExecutionProfile, MemoryBackend, PhysicalMapping, PhysicalMemoryMap,
-};
+use relocade_x86::{CpuState, PhysicalMapping, PhysicalMemoryMap};
 use std::{
     cell::RefCell,
     num::{NonZeroU32, NonZeroU64},
@@ -134,13 +132,7 @@ pub fn memory() -> MachineConfig {
 }
 
 pub fn cpu() -> CpuConfig {
-    CpuConfig::new(
-        Compiler::new(ExecutionProfile::Real16)
-            .with_memory_backend(MemoryBackend::PhysicalBus)
-            .target(),
-        CpuState::real_mode(),
-    )
-    .expect("fixed real-mode PC CPU")
+    CpuConfig::pc(CpuState::real_mode()).expect("fixed initial PC CPU state")
 }
 
 /// The PC advances by one guest microsecond per retired instruction. The host

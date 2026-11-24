@@ -2,7 +2,9 @@ mod cpu;
 mod machine;
 
 pub use cpu::CpuConfig;
-pub(crate) use cpu::{validate_cpu, validate_idtr, validate_system_segment};
+pub(crate) use cpu::{
+    is_pc_jit_target, pc_accepts_segment, validate_cpu, validate_idtr, validate_system_segment,
+};
 pub use machine::MachineConfig;
 use std::fmt;
 
@@ -21,10 +23,10 @@ pub enum ConfigurationError {
 impl fmt::Display for ConfigurationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
-            Self::InvalidTableRegister => {
-                "CPU table registers do not satisfy the execution profile"
+            Self::InvalidTableRegister => "unsupported CPU table registers",
+            Self::UnsupportedMode => {
+                "the physical PC JIT requires the real-mode compilation target"
             }
-            Self::UnsupportedMode => "physical machine configuration requires real mode",
             Self::UnsupportedMemoryBackend => {
                 "physical machine configuration requires the physical memory bus"
             }
@@ -32,7 +34,7 @@ impl fmt::Display for ConfigurationError {
             Self::GuestTimeRequiresInstructionBudgets => {
                 "guest time requires CPU instruction budgets"
             }
-            Self::IncompatibleCpu => "CPU state does not satisfy the execution target",
+            Self::IncompatibleCpu => "unsupported CPU control state or segment caches",
             Self::InvalidMemorySize => "memory_size exceeds the 4-GiB backing address space",
             Self::InsufficientMemory => "physical mappings exceed memory_size",
         })

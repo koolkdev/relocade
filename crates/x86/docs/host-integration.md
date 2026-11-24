@@ -272,8 +272,10 @@ assumption. These transfers stay inside Wasm, and callee results pass through un
 
 The embedding scopes lookup to one guest address space and execution target (profile,
 CPU model and budget support). The Real16 dispatcher uses packed CS:IP keys, so
-two segment aliases of the same bytes can have independent entries. The embedding must keep the execution profile valid while calling these
-entries. A miss tail-calls the interpreter. Each destination owns its entry checks:
+two segment aliases of the same bytes can have independent entries. Dispatch and
+call resolution check CR0.PE before consulting that table. Protected execution
+goes directly to the interpreter and contributes no real-mode call samples.
+A real-mode lookup miss also enters the interpreter. Each destination owns its entry checks:
 snapshot blocks guard their compiled CS span, and the interpreter checks instruction
 fetches. Lookup itself does not validate CS permissions or limits. Registering an export
 does not establish its snapshot validity: the embedding must uphold its original EIP,
@@ -1019,10 +1021,10 @@ CR4=0x600 and VM=0. Unsupported control states can round-trip through snapshots
 but cannot be installed or restored for execution. Other control-state behavior
 and safe mode transitions require further runtime support.
 
-Use the complete target in cache and direct-link keys, and require the same target
-for interpreter fallback. A model with additional enabled capabilities is not an
-interchangeable target: instruction availability is part of the guest contract.
-Changing the target requires rebuilding or selecting matching entries and links.
+Use the complete compiled target in cache and direct-link keys. The fallback
+interpreter must accept the live state, use the same memory, and honor the
+configured CPU model. On the PC the fallback reads the current decode width
+even when the compiled entry had a fixed width.
 
 `ExecutionProfile` selects `Protected(SegmentProfile)` or `Real16` at compilation
 time. `SegmentProfile` supplies protected-mode code defaults and segment assumptions.
@@ -1049,19 +1051,18 @@ when a segment is first requested. Address defaults retain a DS/SS hint so commo
 constants can be reused when the base register is decoded at runtime. Other
 dynamic indices load the selected backing field. Known permissions and full limits
 skip range-check construction, including ordinary Flat32 accesses.
-The runtime owns profile compatibility and must preserve it when changing segment
-caches. `SegmentRegister::is_compatible_with(profile, segment)` checks a proposed
-cache without reading the other segments. Host edits through
-`CpuStateAccess::set_segment` panic if the new cache violates the configured profile.
-`CpuStateAccess::restore` validates the complete
-snapshot and returns a `ConfigurationError` without writing if it is incompatible.
+The runtime owns admission when changing segment caches.
+`SegmentRegister::is_compatible_with(profile, segment)` checks a proposed
+cache without reading the other segments. On the PC, host segment edits must
+preserve the requirements of the current CPU mode. A stopped
+`CpuStateAccess::restore` validates the complete incoming image and preserves
+the retirement count. The same PC interpreter can resume in either supported
+mode. The dispatcher restricts packed CS:IP bindings to canonical real mode.
 Live mode, privilege and width queries read the CPU backing fields.
 `CpuStateAccess::set_eflags` rejects VM before writing; host edits cannot enable
 unsupported virtual-8086 execution through a flags update.
-Descriptor callbacks must likewise enforce the profile before returning a cache
-for a guest segment load. The dispatcher and interpreter gateway rely on this
-invariant and do not recheck it on entry. Any future profile transition, including
-replacing compiled entries and links, belongs to the runtime.
+Embeddings using a fixed protected profile must enforce its assumptions before
+returning a cache from a descriptor callback.
 
 Snapshot blocks check their complete compiled fetch span against current CS at
 entry, before any instruction effects. This includes the last byte of the final
