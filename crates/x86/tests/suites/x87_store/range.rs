@@ -188,5 +188,42 @@ fn overflow_boundaries(frontend: Frontend) {
     }
 }
 
+fn single_overflow_midpoint(frontend: Frontend) {
+    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let format = FORMATS[0];
+    // These extended values round to the same binary64 midpoint. Only the
+    // value below it may complete the binary32 store with overflow unmasked.
+    let midpoint = 0_u64.wrapping_sub(format.unit() / 2);
+    for significand in [midpoint - 1, midpoint, midpoint + 1] {
+        let mut case = StoreCase::masked(
+            (significand, format.maximum_exponent),
+            format.infinity - 1,
+            PE,
+        );
+        case.control = 0x0377;
+        if significand >= midpoint {
+            case.output = None;
+            case.flags = 8 | PENDING;
+        }
+        check_store(&mut checks, format, true, case);
+    }
+}
+
+#[test]
+fn extended_to_binary32_store_emits_native_demotion() {
+    use relocade_x86::Compiler;
+    use wasmparser::{Operator, Parser, Payload};
+
+    let code = FORMATS[0].instruction(0x4000, true);
+    let block = Compiler::new(SegmentProfile::Flat32)
+        .compile_block(0x1000, &code, 1)
+        .unwrap();
+    assert!(Parser::new(0).parse_all(&block.bytes).any(|payload| {
+        matches!(payload.unwrap(), Payload::CodeSectionEntry(body)
+            if body.get_operators_reader().unwrap().into_iter().any(|op| matches!(op.unwrap(), Operator::F32DemoteF64)))
+    }));
+}
+
+test_frontends!(single_midpoint, single_overflow_midpoint);
 test_frontends!(underflow, underflow_boundaries);
 test_frontends!(overflow, overflow_boundaries);
