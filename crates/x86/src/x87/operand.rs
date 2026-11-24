@@ -222,11 +222,18 @@ impl BinaryOperands {
                 BinaryOperation::Add | BinaryOperation::Subtract | BinaryOperation::ReverseSubtract
             )
         {
+            if matches!(operation, BinaryOperation::Add)
+                && body.constant_bits(rounding.is_nearest())? == Some(1)
+            {
+                if let Some(sum) = super::add::short_sum_candidate(body, self, rounding)? {
+                    return Ok(sum);
+                }
+            }
             return super::add::full_precision_candidate(body, self, operation, rounding);
         }
         if matches!(operation, BinaryOperation::Multiply) && matches!(known_precision, Some(2 | 3))
         {
-            if let Some(product) = super::multiply::exact_binary32_product(self) {
+            if let Some(product) = super::multiply::exact_binary32_product(body, self)? {
                 return Ok(product);
             }
         }

@@ -1,4 +1,4 @@
-//! PC53/nearest sums retain x87 signs, rounding status and exponent range.
+//! Native additions retain x87 precision, signs, rounding status and exponent range.
 
 use super::*;
 use crate::support::machine::step_returns;
@@ -14,11 +14,15 @@ fn compiler() -> Compiler {
 
 fn native_module(code: &[u8], count: u32) -> TestModule {
     let module = TestModule::new(&compiler().compile_block(0x1000, code, count).unwrap());
+    assert_native_add(&module);
+    module
+}
+
+fn assert_native_add(module: &TestModule) {
     assert!(Parser::new(0).parse_all(module.bytes()).any(|payload| {
         matches!(payload.unwrap(), Payload::CodeSectionEntry(body) if body.get_operators_reader().unwrap()
             .into_iter().any(|op| matches!(op.unwrap(), Operator::F64Add)))
     }), "fixture must reach native addition");
-    module
 }
 
 #[test]
@@ -255,6 +259,56 @@ fn native_sums_commit_unmasked_precision() {
         assert_eq!(
             module.observe(&image.input(), 1),
             expected(&image, &[dispatch(result)])
+        );
+    }
+}
+
+#[test]
+fn short_pc64_operands_use_native_and_wide_sums_in_one_block() {
+    let code = [
+        0xd9, 0x05, 0, 0x40, 0, 0, // FLD m32
+        0xd8, 0x0d, 4, 0x40, 0, 0, // FMUL m32
+        0xd8, 0x05, 8, 0x40, 0, 0, // FADD m32
+    ];
+    let mut image = stack_image(&code, 0, 0xffff);
+    set_control(&mut image.cpu.x87.control, 0x037f);
+    image.cpu.x87.status.precision = 0;
+    image.map(4, 0x8000, false);
+    image.data(0x8004, &1.0_f32.to_le_bytes());
+    let module = TestModule::new(
+        &Compiler::new(SegmentProfile::Flat32)
+            .specialize_on_cpu(&image.cpu)
+            .compile_block(0x1000, &code, 3)
+            .unwrap(),
+    );
+    assert_native_add(&module);
+
+    let two_to_minus_54 = 2.0_f32.powi(-54);
+    let two_to_minus_65 = 2.0_f32.powi(-65);
+    for (left, right, bits, precision, incremented) in [
+        (1.5_f32, 0.5_f32, (LEADING, 0x4000), 0, 0),
+        (-0.0, -0.0, (0, 0x8000), 0, 0),
+        (1.0, -1.0, (0, 0), 0, 0),
+        // One inverse subtraction succeeds on these inexact binary64 sums.
+        (1.0, two_to_minus_54, (LEADING + 512, 0x3fff), 0, 0),
+        (two_to_minus_54, 1.0, (LEADING + 512, 0x3fff), 0, 0),
+        (1.0, two_to_minus_65, (LEADING, 0x3fff), 1, 0),
+        (1.0, 3.0 * two_to_minus_65, (LEADING + 1, 0x3fff), 1, 1),
+    ] {
+        image.data(0x8000, &left.to_le_bytes());
+        image.data(0x8008, &right.to_le_bytes());
+        let mut cpu = complete_x87(image.cpu, 6, 0x0105);
+        cpu = complete_x87(cpu, 6, 0x000d);
+        cpu = complete_x87(cpu, 6, 0x0005);
+        cpu.x87.data_offset = 0x4008;
+        cpu.x87.data_selector = 0x23;
+        cpu.x87.status.top = 7;
+        cpu.x87.status.precision = precision;
+        cpu.x87.status.c1 = incremented;
+        write_value(&mut cpu, 7, bits);
+        assert_eq!(
+            module.observe(&image.input(), 1),
+            expected(&image, &[dispatch(cpu)])
         );
     }
 }
