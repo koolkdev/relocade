@@ -1,7 +1,8 @@
 use super::*;
+use crate::support::config::FLAT32;
 
 fn arithmetic(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     // Carries, borrows, signed extrema and distinct adjacent lanes.
     for (add, sub, left, right, sum, difference) in [
         (
@@ -47,7 +48,7 @@ fn arithmetic(frontend: Frontend) {
 test_frontends!(mmx_packed_arithmetic, arithmetic);
 
 fn quadwords(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (left, right, sum, difference) in [
         (u64::MAX, 1, 0, u64::MAX - 1),
         (0, 1, 1, u64::MAX),

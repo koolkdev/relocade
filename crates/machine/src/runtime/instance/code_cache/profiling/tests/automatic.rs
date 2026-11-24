@@ -4,10 +4,7 @@ use crate::{
     Runner, SessionConfig,
 };
 use futures_util::future::Either;
-use relocade_x86::{
-    Compiler, CpuState, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
-    PhysicalMemoryMap,
-};
+use relocade_x86::{CpuState, ExecutionExit, HostExit, PhysicalMapping, PhysicalMemoryMap};
 use std::{
     future::poll_fn,
     num::NonZeroUsize,
@@ -18,13 +15,10 @@ use std::{
 mod suspended;
 
 fn setup() -> (Machine, CpuConfig) {
-    let config = CpuConfig::new(
-        Compiler::new(ExecutionProfile::Real16).config(),
-        CpuState {
-            eip: 0x100,
-            ..CpuState::real_mode()
-        },
-    )
+    let config = CpuConfig::pc(CpuState {
+        eip: 0x100,
+        ..CpuState::real_mode()
+    })
     .unwrap();
     let map = PhysicalMemoryMap::new([
         (
@@ -311,11 +305,11 @@ async fn patched_callee() {
             .installed()
             .dispatch
             .contains(alias.packed()));
-        let target = runner.cpu().cpu_state().compiler_config();
+        let config = runner.cpu().cpu_state().compiler_config();
         let mut client = runner.take_compiler().unwrap();
         client
             .request(
-                target,
+                config,
                 vec![crate::BlockRequest {
                     entry: alias,
                     byte_len: 2,

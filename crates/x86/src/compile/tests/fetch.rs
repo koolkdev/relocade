@@ -1,19 +1,20 @@
+use crate::support::config::{REAL16, SEGMENTED16, SEGMENTED32};
 use crate::{
     support::{
         machine::{expected, Exit, Image, Step},
         step::TestModule,
     },
-    Compiler, ExecutionProfile, SegmentProfile,
+    Compiler,
 };
 
 fn block(
     image: &Image,
     code: &[u8],
     instructions: u32,
-    profile: impl Into<ExecutionProfile>,
+    config: crate::CompilerConfig,
 ) -> TestModule {
     TestModule::new(
-        &Compiler::new(profile)
+        &Compiler::new(config)
             .compile_block(image.cpu.eip, code, instructions)
             .unwrap(),
     )
@@ -21,13 +22,13 @@ fn block(
 
 #[test]
 fn valid_fetch_spans() {
-    for profile in [SegmentProfile::Segmented16, SegmentProfile::Segmented32] {
+    for config in [SEGMENTED16, SEGMENTED32] {
         // MOV AX/EAX,AX/EAX; the unsupported suffix is outside the instruction limit.
         let code = [0x89, 0xc0, 0xff];
         let mut image = Image::new(&code);
         image.cpu.instruction_count = 17;
-        image.cpu.segments.cs.big = u8::from(profile == SegmentProfile::Segmented32);
-        let module = block(&image, &code, 1, profile);
+        image.cpu.segments.cs.big = u8::from(config == SEGMENTED32);
+        let module = block(&image, &code, 1, config);
         image.cpu.segments.cs.readable = 0; // Execute-only code is valid.
         image.cpu.segments.cs.selector = 0x33;
         image.cpu.segments.cs.base = 0x8000;
@@ -47,7 +48,7 @@ fn valid_fetch_spans() {
                         exit: Exit::Dispatch(0x1002)
                     }]
                 ),
-                "{profile:?}, CS limit {limit:x}",
+                "{config:?}, CS limit {limit:x}",
             );
         }
     }
@@ -57,7 +58,7 @@ fn valid_fetch_spans() {
     let mut image = Image::new(&code);
     image.cpu.instruction_count = 17;
     image.cpu.segments.cs.limit = 0x1001;
-    let module = block(&image, &code, 10, SegmentProfile::Segmented32);
+    let module = block(&image, &code, 10, SEGMENTED32);
     let mut after = image.cpu;
     after.instruction_count = 18;
     assert_eq!(
@@ -81,7 +82,7 @@ fn valid_fetch_spans() {
     image.map(0, 0x4000, false);
     image.data(0x3ffe, &code[..2]);
     image.data(0x4000, &code[2..]);
-    let module = block(&image, &code, 1, SegmentProfile::Segmented32);
+    let module = block(&image, &code, 1, SEGMENTED32);
     let mut after = image.cpu;
     after.registers.eax = 0x1234_5678;
     after.eip = 3;
@@ -104,11 +105,11 @@ fn valid_fetch_spans() {
 #[test]
 fn denied_fetch_spans() {
     let code = [0x89, 0xc0];
-    for profile in [SegmentProfile::Segmented16, SegmentProfile::Segmented32] {
+    for config in [SEGMENTED16, SEGMENTED32] {
         let mut image = Image::new(&code);
         image.cpu.instruction_count = 17;
-        image.cpu.segments.cs.big = u8::from(profile == SegmentProfile::Segmented32);
-        let module = block(&image, &code, 1, profile);
+        image.cpu.segments.cs.big = u8::from(config == SEGMENTED32);
+        let module = block(&image, &code, 1, config);
         for (case, limit, usable, executable) in [
             ("last byte outside CS", 0x1000, 1, 1),
             ("unusable CS", u32::MAX, 0, 1),
@@ -127,7 +128,7 @@ fn denied_fetch_spans() {
     image.cpu.instruction_count = 17;
     image.cpu.segments.cs.limit = 0x1001;
     image.check_unchanged_exit(
-        &block(&image, &code, 1, SegmentProfile::Segmented32),
+        &block(&image, &code, 1, SEGMENTED32),
         "branch destination remains an architectural check",
         Exit::GeneralProtection { error: 0 },
     );
@@ -142,7 +143,7 @@ fn denied_fetch_spans() {
         image.map(15, 0x3000, false);
         image.map(16, 0x4000, false);
         image.data(0x3000 + (eip & 0xfff), &code);
-        let module = block(&image, &code, 1, ExecutionProfile::Real16);
+        let module = block(&image, &code, 1, REAL16);
         let mut after = image.cpu;
         if matches!(exit, Exit::Dispatch(_)) {
             after.eip = 0x10000;
@@ -165,7 +166,7 @@ fn denied_fetch_spans() {
 
 #[test]
 fn fetch_fallback_preserves_execution_and_fault_order() {
-    let interpreter = TestModule::interpreter_run_with_profile(SegmentProfile::Segmented32);
+    let interpreter = TestModule::interpreter_run_with_config(SEGMENTED32);
 
     // MOV byte [2000],5A; MOV EAX,12345678. Only the final immediate byte exceeds CS.
     let code = [
@@ -175,7 +176,7 @@ fn fetch_fallback_preserves_execution_and_fault_order() {
     image.cpu.instruction_count = 41;
     image.cpu.segments.cs.limit = 0x100a;
     image.map(2, 0x4000, true);
-    let module = block(&image, &code, 2, SegmentProfile::Segmented32);
+    let module = block(&image, &code, 2, SEGMENTED32);
     image.check_unchanged_exit(&module, "handoff precedes the store", Exit::Interpret);
     let module = module.with_interpreter(interpreter);
     let mut after = image.cpu;
@@ -198,7 +199,7 @@ fn fetch_fallback_preserves_execution_and_fault_order() {
     let mut image = Image::new(&code);
     image.cpu.instruction_count = 41;
     image.cpu.segments.cs.limit = 0x1005;
-    let module = block(&image, &code, 2, SegmentProfile::Segmented32).with_interpreter(interpreter);
+    let module = block(&image, &code, 2, SEGMENTED32).with_interpreter(interpreter);
     image.check_unchanged_exit(
         &module,
         "data fault precedes later CS failure",
@@ -216,7 +217,7 @@ fn fetch_fallback_preserves_execution_and_fault_order() {
     image.cpu.segments.cs.limit = 0x1001;
     image.map(0, 0x3000, false);
     image.data(0x3ffe, &code[..2]);
-    let module = block(&image, &code, 1, SegmentProfile::Segmented32).with_interpreter(interpreter);
+    let module = block(&image, &code, 1, SEGMENTED32).with_interpreter(interpreter);
     image.check_unchanged_exit(
         &module,
         "fetch page fault precedes later CS failure",

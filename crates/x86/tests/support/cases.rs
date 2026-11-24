@@ -10,9 +10,8 @@ mod tests;
 
 use super::guest::Mapping;
 use crate::flags::Flag;
-use relocade_x86::{
-    CpuState, ExecutionProfile, FlagsState, Gpr32, Segment, SegmentProfile, SegmentRegister,
-};
+use crate::support::config::{FLAT32, SEGMENTED16, SEGMENTED32};
+use relocade_x86::{CompilerConfig, CpuState, FlagsState, Gpr32, Segment, SegmentRegister};
 
 pub(crate) use super::guest::Permissions;
 
@@ -21,28 +20,24 @@ pub(crate) struct InstructionCase {
     pub(super) code: Vec<u8>,
     pub(super) initial: InitialState,
     pub(super) expected: ExpectedState,
-    pub(super) profiles: Profiles,
+    pub(super) configurations: Configurations,
 }
 
-pub(super) enum Profiles {
-    /// Both applicable protected-mode profiles.
+pub(super) enum Configurations {
+    /// Both applicable protected-mode configurations.
     All,
     Segmented,
 }
 
-impl Profiles {
-    pub(super) fn for_cpu(&self, cpu: &CpuState) -> impl Iterator<Item = ExecutionProfile> {
+impl Configurations {
+    pub(super) fn for_cpu(&self, cpu: &CpuState) -> impl Iterator<Item = CompilerConfig> {
         let segmented = match cpu.segments.cs.big {
-            0 => SegmentProfile::Segmented16,
-            _ => SegmentProfile::Segmented32,
+            0 => SEGMENTED16,
+            _ => SEGMENTED32,
         };
-        [
-            Some(segmented),
-            matches!(self, Self::All).then_some(SegmentProfile::Flat32),
-        ]
-        .into_iter()
-        .flatten()
-        .map(ExecutionProfile::Protected)
+        [Some(segmented), matches!(self, Self::All).then_some(FLAT32)]
+            .into_iter()
+            .flatten()
     }
 }
 
@@ -109,13 +104,13 @@ impl InstructionCase {
             code: code.to_vec(),
             initial: InitialState::new(initial),
             expected: ExpectedState::new(expected),
-            profiles: Profiles::All,
+            configurations: Configurations::All,
         }
     }
 
-    /// The case requires segment state outside the flat profile.
+    /// The case requires segment state outside the flat32 assumptions.
     pub(crate) fn segmented_only(mut self) -> Self {
-        self.profiles = Profiles::Segmented;
+        self.configurations = Configurations::Segmented;
         self
     }
 

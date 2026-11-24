@@ -1,5 +1,6 @@
 //! Trigonometric reduction, final rounding, range flags, and precise restarts.
 
+use crate::support::config::FLAT32;
 use crate::support::machine::step_returns;
 #[path = "x87_trigonometric/pairs.rs"]
 mod pairs;
@@ -13,7 +14,7 @@ use crate::support::{
     step::TestModule,
     x87::{complete_x87, dispatch, set_control, stack_image, write_value, INDEFINITE},
 };
-use relocade_x86::{Compiler, CpuState, SegmentProfile};
+use relocade_x86::{Compiler, CpuState};
 
 const LEAD: u64 = 1 << 63;
 
@@ -25,7 +26,7 @@ fn encoding() {
 }
 
 fn values(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for reference in values::VALUES {
         for negative in [false, true] {
             let input = (
@@ -60,7 +61,7 @@ fn values(frontend: Frontend) {
 }
 
 fn exceptions(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for opcode in [0xfe, 0xff] {
         let code = [0xd9, opcode];
         for (input, output, invalid, range) in [
@@ -189,7 +190,7 @@ fn exceptions(frontend: Frontend) {
 fn jit_specialization() {
     for opcode in [0xfe, 0xff] {
         let code = [0xd9, opcode];
-        let compiler = Compiler::new(SegmentProfile::Flat32);
+        let compiler = Compiler::new(FLAT32);
         let compiled = compiler.compile_block(0x1000, &code, 1).unwrap();
         for input in [
             None,
@@ -225,7 +226,7 @@ fn jit_specialization() {
             let mut cpu = CpuState::default();
             cpu.x87.control.precision_control = pc;
             modules.push(
-                Compiler::new(SegmentProfile::Flat32)
+                Compiler::new(FLAT32)
                     .specialize_on_cpu(&cpu)
                     .compile_block(0x1000, &code, 1)
                     .unwrap()

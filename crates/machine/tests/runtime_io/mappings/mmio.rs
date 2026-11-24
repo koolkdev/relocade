@@ -18,13 +18,7 @@ async fn check_high_physical_mmio() {
         .mmio_handler_offsets()
         .find(|&(page, _)| page == BASE)
         .unwrap();
-    let config = support::configuration(
-        Compiler::new(ExecutionProfile::Real16).config(),
-        CpuState::real_mode(),
-        0x1000,
-        map,
-    )
-    .unwrap();
+    let config = support::configuration(CpuState::real_mode(), 0x1000, map).unwrap();
     let mut cpu = support::create_cpu(config).await.unwrap();
     // Real-mode segments cannot reach this window. Read the same routing word and
     // callback table a generated physical transfer uses, in the live CPU instance.

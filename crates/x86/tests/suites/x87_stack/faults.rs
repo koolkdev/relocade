@@ -1,13 +1,10 @@
 //! Masked stack results and deferred unmasked exception delivery.
 
 use super::*;
-use crate::SegmentProfile;
+use crate::support::config::FLAT32;
 
 fn masked_stack_faults(frontend: Frontend) {
-    let mut checks = ImageSequences::new(
-        frontend,
-        ExecutionProfile::Protected(SegmentProfile::Flat32),
-    );
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (name, code, tags, final_tags, final_top, destination, overflow) in [
         (
             "FLD overflow overwrites push destination",
@@ -88,10 +85,7 @@ fn masked_stack_faults(frontend: Frontend) {
 }
 
 fn exchange_empty_operands(frontend: Frontend) {
-    let mut checks = ImageSequences::new(
-        frontend,
-        ExecutionProfile::Protected(SegmentProfile::Flat32),
-    );
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     let code = [0xd9, 0xca];
     for (name, tags, final_tags, first_empty, second_empty) in [
         (
@@ -155,10 +149,7 @@ fn exchange_empty_operands(frontend: Frontend) {
 }
 
 fn unmasked_stack_faults(frontend: Frontend) {
-    let mut checks = ImageSequences::new(
-        frontend,
-        ExecutionProfile::Protected(SegmentProfile::Flat32),
-    );
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (name, instruction, tags, overflow) in [
         ("FLD overflow", [0xd9, 0xc0], 0, true),
         ("FLD underflow", [0xd9, 0xc2], 0xc030, false),
@@ -206,10 +197,7 @@ fn unmasked_stack_faults(frontend: Frontend) {
 }
 
 fn pending_exception_blocks_stack_operations(frontend: Frontend) {
-    let mut checks = ImageSequences::new(
-        frontend,
-        ExecutionProfile::Protected(SegmentProfile::Flat32),
-    );
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for code in [
         &[0xd9, 0xc0][..],
         &[0xdd, 0xd1],
@@ -240,10 +228,7 @@ fn pending_exception_blocks_stack_operations(frontend: Frontend) {
 }
 
 fn live_status_controls(frontend: Frontend) {
-    let mut checks = ImageSequences::new(
-        frontend,
-        ExecutionProfile::Protected(SegmentProfile::Flat32),
-    );
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     let code = [0xd9, 0xf7, 0xdb, 0xe2, 0xdf, 0xe0];
     let mut image = super::initial_image(&code, 7, 0);
     image.cpu.x87.status = status(0x7f61);

@@ -26,7 +26,7 @@ async fn execute_branches(compiler: &relocade_machine::CompilerService) {
     state.eip = 0;
     state.registers.esp = 0x800;
     state.registers.ebx = 0x20;
-    let config = CpuConfig::new(config.compiler_config(), state).unwrap();
+    let config = CpuConfig::pc(state).unwrap();
     machine
         .memory()
         .view()
@@ -44,11 +44,11 @@ async fn execute_branches(compiler: &relocade_machine::CompilerService) {
     machine.memory().view().write(0x110, &[0x42, 0xc3]).unwrap(); // INC DX; RET
     let cpu = machine.create_cpu(config, Some(compiler)).unwrap();
     let result = ExecutionWorker::spawn(cpu, SessionConfig::host(), async move |mut runner| {
-        let target = runner.cpu().cpu_state().compiler_config();
+        let compiler_config = runner.cpu().cpu_state().compiler_config();
         let mut compiler = runner.take_compiler().unwrap();
         compiler
             .request_functions(
-                target,
+                compiler_config,
                 [0, 3]
                     .map(|offset| FunctionRequest {
                         entry: FarPointer {
@@ -130,7 +130,7 @@ async fn execute_batch(compiler: &relocade_machine::CompilerService) {
     state.eip = 0;
     state.registers.esp = 0x800;
     state.registers.ebx = 0x20;
-    let config = CpuConfig::new(config.compiler_config(), state).unwrap();
+    let config = CpuConfig::pc(state).unwrap();
     machine
         .memory()
         .view()
@@ -147,7 +147,7 @@ async fn execute_batch(compiler: &relocade_machine::CompilerService) {
     machine.memory().view().write(0x300, &[0xf1]).unwrap(); // Unsupported root
     let cpu = machine.create_cpu(config, Some(compiler)).unwrap();
     let result = ExecutionWorker::spawn(cpu, SessionConfig::host(), async move |mut runner| {
-        let target = runner.cpu().cpu_state().compiler_config();
+        let compiler_config = runner.cpu().cpu_state().compiler_config();
         let mut compiler = runner.take_compiler().unwrap();
         let request = |segment| FunctionRequest {
             entry: FarPointer { segment, offset: 0 },
@@ -155,7 +155,10 @@ async fn execute_batch(compiler: &relocade_machine::CompilerService) {
         };
         // Both valid roots survive a rejected root between them.
         compiler
-            .request_functions(target, vec![request(0x10), request(0x30), request(0x20)])
+            .request_functions(
+                compiler_config,
+                vec![request(0x10), request(0x30), request(0x20)],
+            )
             .unwrap();
         let code = compiler.recv().await.unwrap().unwrap();
         assert_eq!(
@@ -167,7 +170,7 @@ async fn execute_batch(compiler: &relocade_machine::CompilerService) {
         );
         assert_eq!(code.ranges(), &[0x100..0x10a, 0x200..0x202]);
         compiler
-            .request_functions(target, vec![request(0x30)])
+            .request_functions(compiler_config, vec![request(0x30)])
             .unwrap();
         assert!(matches!(
             compiler.recv().await.unwrap(),
@@ -237,11 +240,11 @@ async fn execute_aliases(compiler: &relocade_machine::CompilerService) {
         .unwrap();
     let cpu = machine.create_cpu(config, Some(compiler)).unwrap();
     ExecutionWorker::spawn(cpu, SessionConfig::host(), async move |mut runner| {
-        let target = runner.cpu().cpu_state().compiler_config();
+        let compiler_config = runner.cpu().cpu_state().compiler_config();
         let mut compiler = runner.take_compiler().unwrap();
         compiler
             .request_functions(
-                target,
+                compiler_config,
                 [(0, 0x100), (1, 0xf0), (0, 0x200), (1, 0x1f0)]
                     .map(|(segment, offset)| FunctionRequest {
                         entry: FarPointer { segment, offset },

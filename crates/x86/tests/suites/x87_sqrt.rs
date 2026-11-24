@@ -3,13 +3,13 @@
 #[path = "x87_sqrt/jit.rs"]
 mod jit;
 
+use crate::support::config::FLAT32;
 use crate::support::{
     encoding::check_length,
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{Exit, Step},
     x87::{complete_x87, dispatch, set_control, stack_image, write_value, INDEFINITE},
 };
-use relocade_x86::SegmentProfile;
 
 const LEAD: u64 = 1 << 63;
 const CODE: [u8; 2] = [0xd9, 0xfa];
@@ -62,7 +62,7 @@ fn expected_root(input: (u64, u16), pc: u16, rc: u16) -> ((u64, u16), bool, bool
 }
 
 fn rounding(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     let even_tie = LEAD + (1 << 40) + (1 << 15);
     let odd_tie = LEAD + (3 << 40) + (9 << 15);
     for input in [
@@ -110,7 +110,7 @@ fn rounding(frontend: Frontend) {
 
 fn exceptions(frontend: Frontend) {
     let code = [0xd9, 0xfa, 0x9b];
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (input, output, flag, inexact, increment) in [
         (Some((LEAD, 0x7fff)), (LEAD, 0x7fff), 0, false, false),
         (Some((LEAD, 0xffff)), INDEFINITE, 1, false, false),

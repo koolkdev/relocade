@@ -6,7 +6,8 @@ use relocade_machine::{
     SessionConfig,
 };
 use relocade_x86::{
-    Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
+    Compiler, CompilerConfig, CpuState, EntryAssumptions, ExecutionExit, MemoryBackend,
+    PhysicalMapping, PhysicalMemoryMap,
 };
 use std::{cell::RefCell, pin::pin, rc::Rc};
 
@@ -50,13 +51,10 @@ async fn callback_wakes_execution() {
         .unwrap(),
     )
     .unwrap();
-    let cpu_config = CpuConfig::new(
-        Compiler::new(ExecutionProfile::Real16).config(),
-        CpuState {
-            eip: 0x100,
-            ..CpuState::real_mode()
-        },
-    )
+    let cpu_config = CpuConfig::pc(CpuState {
+        eip: 0x100,
+        ..CpuState::real_mode()
+    })
     .unwrap();
     let prepared = machine.create_cpu(cpu_config, None).unwrap();
     let worker = ExecutionWorker::spawn(
@@ -78,7 +76,10 @@ async fn callback_wakes_execution() {
                     Started::configure_io(io, &started);
                 })
                 .await;
-            let compiler = Compiler::new(ExecutionProfile::Real16);
+            let compiler = Compiler::new(CompilerConfig::new(
+                EntryAssumptions::REAL_MODE,
+                MemoryBackend::PhysicalBus,
+            ));
 
             let cpu = runner.cpu();
             started.borrow_mut().interrupt = Some(cpu.interrupt_handle());

@@ -1,6 +1,7 @@
 //! Exact integer sources participate in native PC53 arithmetic and precise restart.
 
 use super::*;
+use crate::support::config::FLAT32;
 use crate::support::machine::step_returns;
 use crate::support::{machine::expected, step::TestModule};
 use relocade_x86::Compiler;
@@ -28,7 +29,7 @@ fn integer_sources_reach_native_operations() {
             image.map(4, 0x8000, false);
             image.data(0x8000, &source.bytes());
             image.data(0x8008, &6.0_f64.to_le_bytes());
-            let compiled = Compiler::new(SegmentProfile::Flat32)
+            let compiled = Compiler::new(FLAT32)
                 .specialize_on_cpu(&image.cpu)
                 .compile_block(0x1000, &code, 2)
                 .unwrap();
@@ -79,7 +80,7 @@ fn operand_exception_restarts_after_the_completed_load() {
         image.map(4, 0x8000, false);
         image.data(0x8000, &source.bytes());
         image.data(0x8008, &1.0_f64.to_le_bytes());
-        let compiled = Compiler::new(SegmentProfile::Flat32)
+        let compiled = Compiler::new(FLAT32)
             .specialize_on_cpu(&image.cpu)
             .compile_block(0x1000, &code, 2)
             .unwrap();

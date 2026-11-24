@@ -1,7 +1,8 @@
 use super::*;
+use crate::support::config::FLAT32;
 
 fn multiplication(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     // Signed high products include negative results in both halves. Pair sums wrap at 32 bits.
     for (opcode, left, right, result) in [
         (
@@ -47,7 +48,7 @@ fn multiplication(frontend: Frontend) {
 test_frontends!(sse_word_products_and_pair_sums, multiplication);
 
 fn unsigned_products(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     check_binary(
         &mut checks,
         0xe4,

@@ -1,9 +1,10 @@
 //! Stack writes remain observable across deferred faults, clearing and reset.
 
 use super::*;
+use crate::support::config::FLAT32;
 
 fn suppressed_push_preserves_earlier_payload(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for resume in [false, true] {
         let mut code = vec![
             0xd9, 0xc0, // FLD ST0
@@ -65,7 +66,7 @@ fn suppressed_push_preserves_earlier_payload(frontend: Frontend) {
 }
 
 fn empty_payloads_survive_reset_and_fault(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for reset in [false, true] {
         let mut code = vec![0xd9, 0xc0, 0xdd, 0xd8]; // FLD ST0; FSTP ST0
         code.extend_from_slice(if reset {
@@ -139,7 +140,7 @@ fn self_pop_leaves_empty_source(frontend: Frontend) {
     underflowed.x87.status = status(0x3041);
     underflowed.x87.tag_word = 0xeffc;
     write_register_bits(&mut underflowed, 6, INDEFINITE);
-    ImageSequences::new(frontend, SegmentProfile::Flat32).check(
+    ImageSequences::new(frontend, FLAT32).check(
         "FSTP ST0 empties its slot after writing the payload",
         &code,
         &image,
@@ -159,7 +160,7 @@ fn consecutive_pushes_fill_then_overflow(frontend: Frontend) {
         0xdf, 0xe0, // FNSTSW AX, observes the deferred exception
         0x9b, // FWAIT
     ];
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for masked in [false, true] {
         let mut image = initial_image(&code, 0, 0xc000);
         image.cpu.x87.status = status(0);

@@ -3,13 +3,13 @@
 #[path = "x87_scale/jit.rs"]
 mod jit;
 
+use crate::support::config::FLAT32;
 use crate::support::{
     encoding::check_length,
     execution::{test_frontends, Frontend, ImageSequences},
     machine::Exit,
     x87::{complete_x87, dispatch, set_control, stack_image, write_value, INDEFINITE},
 };
-use relocade_x86::SegmentProfile;
 
 const LEAD: u64 = 1 << 63;
 const CODE: [u8; 2] = [0xd9, 0xfd];
@@ -20,7 +20,7 @@ fn encoding() {
 }
 
 fn finite_values(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (scale, delta) in [
         ((0, 0), 0),
         ((LEAD, 0x3ffe), 0),
@@ -59,7 +59,7 @@ fn finite_values(frontend: Frontend) {
 }
 
 fn ranges(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     // Input, scale, truncated masked result, masked increment, adjusted result,
     // range flag, masked inexactness, and whether adjustment itself saturates.
     for (input, scale, lower, upper, adjusted, flag, inexact, massive) in [
@@ -225,7 +225,7 @@ fn ranges(frontend: Frontend) {
 }
 
 fn specials(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (left, right, output, flags) in [
         ((LEAD, 0x3fff), (LEAD, 0x7fff), (LEAD, 0x7fff), 0),
         ((LEAD, 0xbfff), (LEAD, 0xffff), (0, 0x8000), 0),

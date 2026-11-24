@@ -35,7 +35,7 @@ pub(crate) fn check(cases: &[SequenceCase], frontend: Frontend) {
                 );
             }
         }
-        for profile in case.profiles.for_cpu(&initial.cpu) {
+        for config in case.configurations.for_cpu(&initial.cpu) {
             if matches!(frontend, Frontend::Block) {
                 let mut machine = case.initial.machine(&code);
                 let mut completed_before = 0;
@@ -44,16 +44,16 @@ pub(crate) fn check(cases: &[SequenceCase], frontend: Frontend) {
                     let count = instruction_count(
                         &code[offset..],
                         (limit as usize) - completed_before,
-                        profile,
+                        config,
                     );
                     let block = blocks.get(
                         &machine.cpu,
                         &code[offset..],
                         (limit as usize - completed_before) as u32,
-                        profile,
+                        config,
                     );
                     let execution = machine.run(block);
-                    let context = format!("{} [{profile:?} block]", case.name);
+                    let context = format!("{} [{config:?} block]", case.name);
                     let mut final_state = FinalExpectation::new(case);
                     let completed = if execution.exit == Exit::Interpret {
                         let completed = execution
@@ -114,7 +114,7 @@ pub(crate) fn check(cases: &[SequenceCase], frontend: Frontend) {
                 continue;
             }
             let executions = machine.run_many(
-                TestModule::interpreter_with_profile(profile),
+                TestModule::interpreter_with_config(config),
                 case.checkpoints.len(),
             );
             let mut before = &initial;
@@ -122,7 +122,7 @@ pub(crate) fn check(cases: &[SequenceCase], frontend: Frontend) {
                 case.checkpoints.iter().zip(&executions).enumerate()
             {
                 let context = format!(
-                    "{} [{profile:?} interpreter, checkpoint {}]",
+                    "{} [{config:?} interpreter, checkpoint {}]",
                     case.name,
                     index + 1
                 );

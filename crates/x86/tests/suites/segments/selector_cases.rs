@@ -1,24 +1,25 @@
 //! Shared admission and observations for instructions that transfer selectors.
 
+use crate::support::config::SEGMENTED16;
 use crate::support::{
     blocks::BlockModules,
     machine::{expected, Image, Step},
     step::{Event, SegmentResolution, TestModule},
 };
 use relocade_x86::{
-    ExecutionProfile, SegmentDefaultSize, SegmentDescriptor, SegmentDescriptorKind, SegmentLimit,
-    SegmentProfile, SegmentRegister,
+    CompilerConfig, SegmentDefaultSize, SegmentDescriptor, SegmentDescriptorKind, SegmentLimit,
+    SegmentRegister,
 };
 
 pub(super) fn check_one(
-    profile: ExecutionProfile,
+    config: CompilerConfig,
     code: &[u8],
     image: &Image,
     resolutions: &[SegmentResolution],
     step: Step<'_>,
 ) {
     let mut blocks = BlockModules::default();
-    let block = blocks.get(&image.cpu, code, 1, profile);
+    let block = blocks.get(&image.cpu, code, 1, config);
     let mut input = image.input();
     input.segment_resolutions = resolutions.to_vec();
     let mut wanted = expected(image, &[step]);
@@ -31,11 +32,11 @@ pub(super) fn check_one(
             },
         );
     }
-    for module in [block, TestModule::interpreter_with_profile(profile)] {
+    for module in [block, TestModule::interpreter_with_config(config)] {
         assert_eq!(
             module.observe(&input, 1),
             module.expected(wanted.clone()),
-            "{} {profile:?} {code:02x?}",
+            "{} {config:?} {code:02x?}",
             module.entry,
         );
     }
@@ -53,8 +54,8 @@ pub(super) fn descriptor(base: u32, size: SegmentDefaultSize) -> SegmentDescript
     )
 }
 
-pub(super) fn code_defaults(image: &mut Image, profile: ExecutionProfile) {
-    if profile == ExecutionProfile::Protected(SegmentProfile::Segmented16) {
+pub(super) fn code_defaults(image: &mut Image, config: CompilerConfig) {
+    if config.entry == SEGMENTED16.entry {
         image.cpu.segments.cs.big = 0;
     }
 }

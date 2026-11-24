@@ -1,8 +1,6 @@
 mod support;
 use relocade_machine::{Cpu, FarPointer, MachineConfig, Memory, MemoryError};
-use relocade_x86::{
-    Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
-};
+use relocade_x86::{CpuState, ExecutionExit, PhysicalMapping, PhysicalMemoryMap};
 
 #[cfg(target_arch = "wasm32")]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
@@ -28,7 +26,6 @@ async fn check_guest_memory() {
     // Guest stores must reach the tracked-write callback at the backing offset.
     map.set_code_page(0x2000, true);
     let config = support::configuration(
-        Compiler::new(ExecutionProfile::Real16).config(),
         CpuState {
             eip: 0x100,
             ..CpuState::real_mode()

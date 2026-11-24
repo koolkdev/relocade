@@ -1,4 +1,5 @@
 use super::*;
+use crate::support::config::REAL16;
 use crate::support::machine::step_returns;
 use crate::support::{
     blocks::BlockModules,
@@ -18,8 +19,8 @@ fn availability(frontend: Frontend) {
         let image = super::interrupts::interrupt_image(code, 6);
         let module = match frontend {
             // A terminal mode restriction must stop decoding despite the larger limit.
-            Frontend::Block => blocks.get(&image.cpu, code, 8, ExecutionProfile::Real16),
-            Frontend::Interpreter => TestModule::interpreter_with_profile(ExecutionProfile::Real16),
+            Frontend::Block => blocks.get(&image.cpu, code, 8, REAL16),
+            Frontend::Interpreter => TestModule::interpreter_with_config(REAL16),
         };
         assert_eq!(
             module.observe(&image.input(), 1),
@@ -38,7 +39,7 @@ fn availability(frontend: Frontend) {
 test_frontends!(mode_availability, availability);
 
 fn fetches() {
-    let module = TestModule::interpreter_with_profile(ExecutionProfile::Real16);
+    let module = TestModule::interpreter_with_config(REAL16);
     for (start, code, exit) in [
         (
             0x2000,
@@ -120,7 +121,7 @@ fn fetches() {
 }
 
 fn segment_fetch_bounds() {
-    let module = TestModule::interpreter_with_profile(ExecutionProfile::Real16);
+    let module = TestModule::interpreter_with_config(REAL16);
     for eip in [0x10000, 0x8000_0000, u32::MAX] {
         let mut image = image(&[]);
         image.cpu.segments.cs = cache(Segment::Cs, 0xffff);
@@ -179,8 +180,8 @@ fn a20_fetch(frontend: Frontend) {
         };
         let module = match frontend {
             // The host supplies bytes matching the installed gate.
-            Frontend::Block => blocks.get(&image.cpu, code, 1, ExecutionProfile::Real16),
-            Frontend::Interpreter => TestModule::interpreter_with_profile(ExecutionProfile::Real16),
+            Frontend::Block => blocks.get(&image.cpu, code, 1, REAL16),
+            Frontend::Interpreter => TestModule::interpreter_with_config(REAL16),
         };
         let mut input = image.input();
         input.a20_enabled = enabled;
@@ -202,7 +203,7 @@ fn a20_fetch(frontend: Frontend) {
 test_frontends!(a20_instruction_fetch, a20_fetch);
 
 fn run_module() -> &'static TestModule {
-    TestModule::interpreter_run_with_profile(ExecutionProfile::Real16)
+    TestModule::interpreter_run_with_config(REAL16)
 }
 
 fn runs() {
@@ -271,7 +272,7 @@ fn runs() {
 }
 
 fn fetch_callbacks(mmio: bool) {
-    let module = TestModule::interpreter_with_profile(ExecutionProfile::Real16);
+    let module = TestModule::interpreter_with_config(REAL16);
     for (code, start, fetched, exit) in [
         (&[0x90][..], 0x1000, 1, Exit::Dispatch(0x1001)),
         (&[0xb8, 0x78, 0x56][..], 0x1000, 3, Exit::Dispatch(0x1003)),
@@ -351,7 +352,7 @@ fn live_fetch() {
     input.mmio_pages = vec![(2, 0x8000)];
     input.observe_mmio = true;
     assert_eq!(
-        TestModule::interpreter_with_profile(ExecutionProfile::Real16).observe(&input, 1),
+        TestModule::interpreter_with_config(REAL16).observe(&input, 1),
         step_returns(expected(
             &last_byte,
             &[Step {

@@ -2,9 +2,7 @@ use relocade_machine::{
     worker::{Receiver, Thread},
     CpuConfig, CpuHandle, ExecutionWorker, Machine, MachineConfig, SessionConfig,
 };
-use relocade_x86::{
-    Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
-};
+use relocade_x86::{CpuState, ExecutionExit, PhysicalMapping, PhysicalMemoryMap};
 use std::{pin::pin, time::Duration};
 
 #[path = "machine/admission.rs"]
@@ -25,13 +23,10 @@ fn setup() -> (Machine, CpuConfig) {
     )])
     .unwrap();
     let machine = Machine::new(MachineConfig::new(0x2000, map).unwrap()).unwrap();
-    let config = CpuConfig::new(
-        Compiler::new(ExecutionProfile::Real16).config(),
-        CpuState {
-            eip: 0x100,
-            ..CpuState::real_mode()
-        },
-    )
+    let config = CpuConfig::pc(CpuState {
+        eip: 0x100,
+        ..CpuState::real_mode()
+    })
     .unwrap();
     (machine, config)
 }

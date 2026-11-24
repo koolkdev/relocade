@@ -2,6 +2,8 @@
 
 #[path = "segments/arpl.rs"]
 mod arpl;
+#[path = "segments/assumptions.rs"]
+mod assumptions;
 #[path = "segments/bounds.rs"]
 mod bounds;
 #[path = "segments/code.rs"]
@@ -24,8 +26,6 @@ mod moves;
 mod permissions;
 #[path = "segments/pointers.rs"]
 mod pointers;
-#[path = "segments/profiles.rs"]
-mod profiles;
 #[path = "segments/progress.rs"]
 mod progress;
 #[path = "segments/push_pop.rs"]

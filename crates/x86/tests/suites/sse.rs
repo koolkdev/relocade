@@ -27,12 +27,13 @@ mod shuffle;
 #[path = "sse/words.rs"]
 mod words;
 
+use crate::support::config::{FLAT32, SEGMENTED16};
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{Exit, Image, Step},
 };
 use memory::check_m128_span;
-use relocade_x86::{CpuState, SegmentProfile};
+use relocade_x86::CpuState;
 
 const LEFT: u128 = 0x01234567_89abcdef_fedcba98_76543210;
 const RIGHT: u128 = 0xf0f00f0f_55aaaa55_3333cccc_00ffff00;
@@ -64,7 +65,7 @@ fn encoding(prefix: &[u8], opcode: u8, modrm: u8) -> Vec<u8> {
 }
 
 fn registers(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for prefix in [&[][..], &[0x66][..]] {
         for source in 0..8 {
             let destination = (source + 3) & 7;
@@ -93,7 +94,7 @@ fn registers(frontend: Frontend) {
 }
 
 fn transfers(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for prefix in [&[][..], &[0x66][..]] {
         let load = encoding(prefix, 0x10, 0x38); // xmm7, [eax]
         let store = encoding(prefix, 0x11, 0x39); // [ecx], xmm7
@@ -135,7 +136,7 @@ fn transfers(frontend: Frontend) {
 }
 
 fn faults(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for opcode in [0x10, 0x11] {
         for writable in [false, true] {
             let code = [0x0f, 0x57, 0xff, 0x0f, opcode, 0x38];
@@ -187,7 +188,7 @@ test_frontends!(sse_memory_transfers, transfers);
 test_frontends!(sse_precise_faults, faults);
 
 fn segmented_defaults(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Segmented16);
+    let mut checks = ImageSequences::new(frontend, SEGMENTED16);
     for prefix in [&[][..], &[0x66][..]] {
         let code = encoding(prefix, 0x10, 0x06); // xmm0, [disp16]
         let code = [code, vec![0x00, 0x40]].concat();

@@ -1,7 +1,8 @@
 use super::*;
+use crate::support::config::FLAT32;
 
 fn saturation(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (opcode, cases) in [
         (
             0xec,

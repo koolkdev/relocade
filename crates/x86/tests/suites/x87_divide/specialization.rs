@@ -1,6 +1,7 @@
 //! Direct block observations require admitted quotients to stay in generated code.
 
 use super::*;
+use crate::support::config::FLAT32;
 use crate::support::machine::step_returns;
 use crate::support::{machine::expected, step::TestModule};
 use relocade_x86::{compile_block_from_bytes, Compiler, CpuState};
@@ -15,7 +16,7 @@ fn admitted_quotients_use_dynamic_and_observed_modes() {
             observed.x87.control.precision_control = pc;
             observed.x87.control.rounding_control = rc;
             let specialized = TestModule::new(
-                &Compiler::new(SegmentProfile::Flat32)
+                &Compiler::new(FLAT32)
                     .specialize_on_cpu(&observed)
                     .compile_block(0x1000, &code, 1)
                     .unwrap(),

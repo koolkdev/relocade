@@ -1,12 +1,12 @@
 //! Streaming stores retain payloads, access checks and MMX state transitions.
 
+use crate::support::config::{FLAT32, REAL16};
 use crate::support::{
     encoding::check_unsupported_at_page_end,
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{Exit, Step},
     x87::{stack_image, write_register_bits},
 };
-use relocade_x86::{ExecutionProfile, SegmentProfile};
 
 const BITS: u128 = 0x7f800001_80000000_01234567_89abcdef;
 const FORMS: &[(&[u8], usize, bool)] = &[
@@ -18,7 +18,7 @@ const FORMS: &[(&[u8], usize, bool)] = &[
 ];
 
 fn stores(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for &(code, bytes, mmx) in FORMS {
         let offsets: &[u32] = if bytes == 16 {
             &[0x4ff0]
@@ -64,7 +64,7 @@ fn stores(frontend: Frontend) {
 }
 
 fn faults(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for &(code, bytes, mmx) in FORMS {
         for writable in [false, true] {
             let mut image = stack_image(code, 5, 0xaaaa);
@@ -120,7 +120,7 @@ fn faults(frontend: Frontend) {
 }
 
 fn real_mode(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, ExecutionProfile::Real16);
+    let mut checks = ImageSequences::new(frontend, REAL16);
     for &(form, bytes, mmx) in FORMS {
         // The address override chooses EAX, but MOVNTI remains a dword store
         // under a 16-bit code default, and P66 still selects the XMM variant.

@@ -1,7 +1,8 @@
 use super::*;
+use crate::support::config::{FLAT32, SEGMENTED16};
 
 fn unpack(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     // Distinct source bytes expose the chosen half, lane width and interleave order.
     for (opcode, result) in [
         (0x60, 0x8707860685058404_8303820281018000),
@@ -40,7 +41,7 @@ fn unpack(frontend: Frontend) {
 }
 
 fn unpack_span(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Segmented16);
+    let mut checks = ImageSequences::new(frontend, SEGMENTED16);
     for opcode in [0x60, 0x68] {
         check_m128_span(&mut checks, &[0x66, 0x0f, opcode, 0x36, 0x00, 0x40]);
     }

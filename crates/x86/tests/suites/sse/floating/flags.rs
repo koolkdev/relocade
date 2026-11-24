@@ -1,9 +1,10 @@
 //! COMI/UCOMI differ only in whether a quiet NaN raises invalid.
 
 use super::*;
+use crate::support::config::FLAT32;
 
 fn relations(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for wide in [false, true] {
         for quiet in [false, true] {
             let code = encoding(
@@ -71,7 +72,7 @@ fn relations(frontend: Frontend) {
 }
 
 fn memory(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for wide in [false, true] {
         let code = encoding(if wide { &[0x66] } else { &[] }, 0x2f, 0x00);
         let width = if wide { 8 } else { 4 };

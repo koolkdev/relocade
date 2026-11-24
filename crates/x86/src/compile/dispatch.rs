@@ -68,7 +68,7 @@ impl Compiler {
         Ok(CompiledModule {
             bytes: program.compile()?,
             entry: crate::abi::DISPATCH.name.into(),
-            execution_target: Some(self.config),
+            config: Some(self.config),
         })
     }
 }

@@ -1,12 +1,12 @@
 //! Only selected bytes reach MMIO; every transfer observes live routing.
 
 use super::*;
+use crate::support::config::REAL16;
 use crate::support::{
     blocks::BlockModules,
     machine::{expected, step_returns},
     step::{Event, MmioUpdate, TestModule},
 };
-use relocade_x86::ExecutionProfile;
 
 fn mmio(frontend: Frontend) {
     let mut blocks = BlockModules::default();
@@ -59,14 +59,10 @@ fn mmio(frontend: Frontend) {
             wanted.events.splice(0..0, events);
             let module = match frontend {
                 Frontend::Block => blocks
-                    .get(&image.cpu, &code, 1, ExecutionProfile::Real16)
+                    .get(&image.cpu, &code, 1, REAL16)
                     .clone()
-                    .with_interpreter(TestModule::interpreter_with_profile(
-                        ExecutionProfile::Real16,
-                    )),
-                Frontend::Interpreter => {
-                    TestModule::interpreter_with_profile(ExecutionProfile::Real16).clone()
-                }
+                    .with_interpreter(TestModule::interpreter_with_config(REAL16)),
+                Frontend::Interpreter => TestModule::interpreter_with_config(REAL16).clone(),
             };
             assert_eq!(
                 module.observe(&input, 1),

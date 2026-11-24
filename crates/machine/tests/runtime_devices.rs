@@ -5,9 +5,7 @@ mod support;
 use futures_channel::{mpsc, oneshot};
 use futures_util::StreamExt;
 use relocade_machine::{Clock, Device, ExecutionWorker, Hook, SessionConfig};
-use relocade_x86::{
-    Compiler, CpuState, ExecutionExit, ExecutionProfile, PhysicalMapping, PhysicalMemoryMap,
-};
+use relocade_x86::{CpuState, ExecutionExit, PhysicalMapping, PhysicalMemoryMap};
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
@@ -57,7 +55,6 @@ impl Device for Ticker {
 
 fn configuration() -> support::Configuration {
     support::configuration(
-        Compiler::new(ExecutionProfile::Real16).config(),
         CpuState {
             eip: 0x100,
             ..CpuState::real_mode()

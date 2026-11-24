@@ -1,6 +1,7 @@
 //! An observed masked precision flag removes repeated exactness work without hiding new faults.
 
 use super::*;
+use crate::support::config::{FLAT32, REAL16};
 
 fn sticky_precision() {
     let instruction = [0xf3, 0x0f, 0x58, 0xc1]; // ADDSS: 1 + 2^-24 rounds back to 1.
@@ -9,8 +10,8 @@ fn sticky_precision() {
         let mut image = floating_image(&code, observed);
         lane(&mut image.cpu.simd.xmm[0], false, 0, ONE[0]);
         lane(&mut image.cpu.simd.xmm[1], false, 0, 0x3380_0000);
-        let compiled = observed_block(&code, 2, SegmentProfile::Flat32.into(), &image.cpu);
-        let linked = observed_block(&code, 2, SegmentProfile::Flat32.into(), &image.cpu)
+        let compiled = observed_block(&code, 2, FLAT32, &image.cpu);
+        let linked = observed_block(&code, 2, FLAT32, &image.cpu)
             .with_interpreter(TestModule::interpreter());
         for live in [0x1fa0, 0x1fa5, 0xabcd_1faf, 0x1f80, 0x0fa0, 0x0f80] {
             image.cpu.simd.mxcsr = live;
@@ -69,9 +70,9 @@ fn loaded_precision() {
     image.map(4, 0x8000, false);
     lane(&mut image.cpu.simd.xmm[0], false, 0, ONE[0]);
     lane(&mut image.cpu.simd.xmm[1], false, 0, 0x3380_0000);
-    let compiled = observed_block(&code, 3, SegmentProfile::Flat32.into(), &image.cpu);
-    let linked = observed_block(&code, 3, SegmentProfile::Flat32.into(), &image.cpu)
-        .with_interpreter(TestModule::interpreter());
+    let compiled = observed_block(&code, 3, FLAT32, &image.cpu);
+    let linked =
+        observed_block(&code, 3, FLAT32, &image.cpu).with_interpreter(TestModule::interpreter());
     for loaded in [0x1f80_u32, 0x1fa5, 0x0fa0] {
         image.data(0x8000, &loaded.to_le_bytes());
         let mut prefix = retire(retire(image.cpu, add.len()), load.len());
@@ -150,7 +151,7 @@ fn precision_free_instructions() {
                 );
             }
         }
-        let compiled = observed_block(&code, count, SegmentProfile::Flat32.into(), &image.cpu);
+        let compiled = observed_block(&code, count, FLAT32, &image.cpu);
         if !load {
             image.cpu.simd.mxcsr = 0x1f85;
         }
@@ -196,7 +197,7 @@ fn precision_producing_instructions() {
         image.cpu.simd.xmm.fill([0; 16]);
         image.cpu.registers.ecx = 0;
         image.cpu.x87.status = crate::support::x87::status(0);
-        let compiled = observed_block(code, 1, SegmentProfile::Flat32.into(), &image.cpu);
+        let compiled = observed_block(code, 1, FLAT32, &image.cpu);
         image.cpu.simd.mxcsr = 0x1f80;
         image.check_unchanged_exit(&compiled, name, Exit::Interpret);
     }
@@ -210,10 +211,9 @@ fn cleared_precision_before_mmio() {
     image.initialize_real_mode();
     lane(&mut image.cpu.simd.xmm[0], false, 0, ONE[0]);
     image.data(0x8000, &0x3380_0000_u32.to_le_bytes());
-    let compiled = observed_block(&code, 1, ExecutionProfile::Real16, &image.cpu);
-    let linked = observed_block(&code, 1, ExecutionProfile::Real16, &image.cpu).with_interpreter(
-        TestModule::interpreter_with_profile(ExecutionProfile::Real16),
-    );
+    let compiled = observed_block(&code, 1, REAL16, &image.cpu);
+    let linked = observed_block(&code, 1, REAL16, &image.cpu)
+        .with_interpreter(TestModule::interpreter_with_config(REAL16));
     image.cpu.simd.mxcsr = 0x1f80;
     let mut input = image.input();
     input.mmio_pages = vec![(2, 0x8000)];

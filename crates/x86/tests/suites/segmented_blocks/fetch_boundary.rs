@@ -1,25 +1,18 @@
 use super::code;
+use crate::support::config::{SEGMENTED16, SEGMENTED32};
 use crate::support::{
     blocks::BlockModules,
     machine::{expected, Exit, Image, Step},
     step::TestModule,
 };
-use relocade_x86::{ExecutionProfile, SegmentDefaultSize, SegmentProfile, SegmentRegister};
+use relocade_x86::{SegmentDefaultSize, SegmentRegister};
 
 #[test]
 fn a_valid_block_prefix_retires_before_interpreter_fetch_faults() {
     let mut blocks = BlockModules::default();
-    for (size, profile, modrm) in [
-        (
-            SegmentDefaultSize::Bits16,
-            ExecutionProfile::Protected(SegmentProfile::Segmented16),
-            0x46,
-        ),
-        (
-            SegmentDefaultSize::Bits32,
-            ExecutionProfile::Protected(SegmentProfile::Segmented32),
-            0x45,
-        ),
+    for (size, config, modrm) in [
+        (SegmentDefaultSize::Bits16, SEGMENTED16, 0x46),
+        (SegmentDefaultSize::Bits32, SEGMENTED32, 0x45),
     ] {
         // ADD AL,1 fits. The following MOV [BP/EBP+0],AX/EAX needs a byte
         // outside CS, so the snapshot producer includes only the ADD.
@@ -32,7 +25,7 @@ fn a_valid_block_prefix_retires_before_interpreter_fetch_faults() {
         image.map(7, 0x3000, false);
         image.data(0x3003, &bytes);
 
-        let block = blocks.get(&image.cpu, &bytes, 1, profile);
+        let block = blocks.get(&image.cpu, &bytes, 1, config);
         let mut cpu = image.cpu;
         cpu.registers.eax = 0xaaaa_0080;
         cpu.flags.status_source.kind = 2;
@@ -50,14 +43,14 @@ fn a_valid_block_prefix_retires_before_interpreter_fetch_faults() {
                     exit: Exit::Dispatch(0x1002),
                 }],
             ),
-            "{profile:?} valid block prefix",
+            "{config:?} valid block prefix",
         );
 
         // Enter the interpreter with the verified prefix result. Fetch must
         // report #GP before the unusable SS can cause an operand fault.
         image.cpu = cpu;
         assert_eq!(
-            TestModule::interpreter_with_profile(profile).observe(&image.input(), 1),
+            TestModule::interpreter_with_config(config).observe(&image.input(), 1),
             expected(
                 &image,
                 &[Step {
@@ -66,7 +59,7 @@ fn a_valid_block_prefix_retires_before_interpreter_fetch_faults() {
                     exit: Exit::GeneralProtection { error: 0 },
                 }],
             ),
-            "{profile:?} interpreter fallback preserves prefix progress",
+            "{config:?} interpreter fallback preserves prefix progress",
         );
     }
 }

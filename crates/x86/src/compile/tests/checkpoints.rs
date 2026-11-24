@@ -1,13 +1,14 @@
+use crate::support::config::FLAT32;
 use crate::{
     support::{
         execution::{test_frontends, Frontend},
         step::{decode, CallPatches, Event, Input, Outcome, Snapshot, TestModule},
     },
-    Compiler, CpuState, ExecutionContext, ExecutionExit, HostExit, SegmentProfile,
+    Compiler, CpuState, ExecutionContext, ExecutionExit, HostExit,
 };
 
 fn interpreter() -> &'static TestModule {
-    TestModule::interpreter_run_with_profile(SegmentProfile::Flat32)
+    TestModule::interpreter_run_with_config(FLAT32)
 }
 
 fn execute(
@@ -42,7 +43,7 @@ fn execute(
     let module = match frontend {
         Frontend::Block => {
             block = TestModule::new(
-                &Compiler::new(SegmentProfile::Flat32)
+                &Compiler::new(FLAT32)
                     .compile_block(cpu.eip, code, instructions)
                     .unwrap(),
             );

@@ -1,6 +1,7 @@
 //! Representative addressing and page-routing integration for the FXSR image.
 
 use super::*;
+use crate::support::config::{FLAT32, SEGMENTED16};
 
 fn split_pages(frontend: Frontend) {
     for restore in [false, true] {
@@ -47,10 +48,10 @@ fn split_pages(frontend: Frontend) {
 }
 
 fn address_override(frontend: Frontend) {
-    let profile = ExecutionProfile::Protected(SegmentProfile::Segmented16);
+    let config = SEGMENTED16;
     for restore in [false, true] {
         let code = [&[0x67][..], &instruction(FLAT32, restore, 0x14010)].concat();
-        let mut image = image(&code, profile);
+        let mut image = image(&code, config);
         image.map(4, 0xc000, true);
         image.data(0xc010, &[0xcc; 512]);
         image.map(0x14, 0x8000, true);
@@ -82,7 +83,7 @@ fn address_override(frontend: Frontend) {
         } else {
             vec![(0x8010, bytes.as_slice())]
         };
-        ImageSequences::new(frontend, profile).check(
+        ImageSequences::new(frontend, config).check(
             "FXSR address override changes addressing while pointer fields remain 16-bit",
             &code,
             &image,

@@ -1,33 +1,22 @@
 use super::*;
-use crate::SegmentProfile;
+use crate::support::config::{FLAT32, SEGMENTED16, SEGMENTED32};
+
 use relocade_x86::SegmentRegister;
 
 #[test]
 fn both_forms_use_operand_size_for_the_target_and_preserve_all_other_state() {
-    for (profile, code, word) in [
+    for (config, code, word) in [
         (
-            ExecutionProfile::Protected(SegmentProfile::Flat32),
+            FLAT32,
             &[0xea, 0x78, 0x56, 0x34, 0x92, 0x24, 0xf3][..],
             false,
         ),
-        (
-            ExecutionProfile::Protected(SegmentProfile::Segmented32),
-            &[0x66, 0xea, 0x78, 0x56, 0x24, 0xf3],
-            true,
-        ),
-        (
-            ExecutionProfile::Protected(SegmentProfile::Segmented16),
-            &[0xff, 0x28],
-            true,
-        ),
-        (
-            ExecutionProfile::Protected(SegmentProfile::Segmented16),
-            &[0x66, 0xff, 0x28],
-            false,
-        ),
+        (SEGMENTED32, &[0x66, 0xea, 0x78, 0x56, 0x24, 0xf3], true),
+        (SEGMENTED16, &[0xff, 0x28], true),
+        (SEGMENTED16, &[0x66, 0xff, 0x28], false),
     ] {
         let mut image = Image::new(code);
-        code_defaults(&mut image, profile);
+        code_defaults(&mut image, config);
         image.cpu.registers.ebx = 0x4000;
         image.cpu.registers.esi = 0;
         image.map(4, 0x8000, false);
@@ -59,7 +48,7 @@ fn both_forms_use_operand_size_for_the_target_and_preserve_all_other_state() {
         cpu.eip = if word { 0x5678 } else { 0x9234_5678 };
         cpu.instruction_count = 0;
         check_one(
-            profile,
+            config,
             code,
             &image,
             &[SegmentResolution::new(&tables, Segment::Cs, 0xf324)],
@@ -106,7 +95,7 @@ fn execute_only_and_conforming_code_accept_table_selection_and_normalize_cs_rpl(
         cpu.eip = 0x200;
         cpu.instruction_count = 0;
         check_one(
-            ExecutionProfile::Protected(SegmentProfile::Flat32),
+            FLAT32,
             &code,
             &image,
             &[SegmentResolution::new(&tables, Segment::Cs, selector)],
@@ -120,11 +109,8 @@ fn execute_only_and_conforming_code_accept_table_selection_and_normalize_cs_rpl(
 }
 
 #[test]
-fn the_new_inclusive_code_limit_applies_even_when_the_incoming_profile_is_flat() {
-    for profile in [
-        ExecutionProfile::Protected(SegmentProfile::Flat32),
-        ExecutionProfile::Protected(SegmentProfile::Segmented32),
-    ] {
+fn the_new_inclusive_code_limit_applies_even_with_flat_entry_segments() {
+    for config in [FLAT32, SEGMENTED32] {
         for (old_limit, new_limit, target) in [
             (u32::MAX, 0, 0),
             (u32::MAX, 0x200, 0x200),
@@ -132,9 +118,7 @@ fn the_new_inclusive_code_limit_applies_even_when_the_incoming_profile_is_flat()
             (0x1006, 0x4000, 0x3000),
             (0x1006, 0x200, 0x201),
         ] {
-            if profile == ExecutionProfile::Protected(SegmentProfile::Flat32)
-                && old_limit != u32::MAX
-            {
+            if config.entry == FLAT32.entry && old_limit != u32::MAX {
                 continue;
             }
             let code = immediate(false, target, 0x27);
@@ -155,7 +139,7 @@ fn the_new_inclusive_code_limit_applies_even_when_the_incoming_profile_is_flat()
                 Exit::GeneralProtection { error: 0 }
             };
             check_one(
-                profile,
+                config,
                 &code,
                 &image,
                 &[SegmentResolution::new(&tables, Segment::Cs, 0x27)],

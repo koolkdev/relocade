@@ -1,6 +1,6 @@
 use super::*;
+use crate::support::config::{FLAT32, SEGMENTED32};
 use crate::support::machine::step_returns;
-use crate::SegmentProfile;
 
 #[test]
 fn failed_resolution_preserves_all_cpu_state_and_reports_the_shared_fault() {
@@ -39,7 +39,7 @@ fn failed_resolution_preserves_all_cpu_state_and_reports_the_shared_fault() {
             );
         }
         check_one(
-            ExecutionProfile::Protected(SegmentProfile::Flat32),
+            FLAT32,
             &code,
             &image,
             &[SegmentResolution::new(&tables, segment, selector)],
@@ -71,7 +71,7 @@ fn operand_faults_precede_resolution_and_split_stores_do_not_partially_write() {
         };
         // An empty response script also proves the resolver was never called.
         check_one(
-            ExecutionProfile::Protected(SegmentProfile::Segmented32),
+            SEGMENTED32,
             &code,
             &image,
             &[],
@@ -90,7 +90,7 @@ fn operand_faults_precede_resolution_and_split_stores_do_not_partially_write() {
     image.data(0x8fff, &[0xa5]);
     image.data(0xa000, &[0x5a]);
     check_one(
-        ExecutionProfile::Protected(SegmentProfile::Flat32),
+        FLAT32,
         &code,
         &image,
         &[],
@@ -169,12 +169,7 @@ fn a_resolver_fault_publishes_earlier_register_flags_store_and_retirement_progre
         step_returns(wanted.clone())
     );
     let mut blocks = BlockModules::default();
-    let block = blocks.get(
-        &image.cpu,
-        &code,
-        4,
-        ExecutionProfile::Protected(SegmentProfile::Flat32),
-    );
+    let block = blocks.get(&image.cpu, &code, 4, FLAT32);
     let mut wanted = expected(&image, &[fault()]);
     wanted.events.insert(0, event);
     assert_eq!(block.observe(&input, 1), wanted);

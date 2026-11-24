@@ -1,11 +1,12 @@
 use crate::{
     support::{
+        config::{FLAT32, REAL16},
         machine::{expected, Exit, Image, Step},
         step::{CallPatches, TestModule},
     },
     BlockCompileError, BlockEntry, BlockError, BlockSnapshot, CodeAddress, CompiledBlocks,
     Compiler, CompilerConfig, CpuFeature, CpuModel, CpuState, EntryAssumptions, ExecutionContext,
-    ExecutionExit, ExecutionProfile, MemoryBackend, SegmentDefaultSize, SegmentProfile,
+    ExecutionExit, MemoryBackend, SegmentDefaultSize,
 };
 use wasmparser::{Parser, Payload, Validator};
 
@@ -38,7 +39,7 @@ fn entries_report_consumed_spans_in_input_order() {
             instruction_limit: 10,
         },
     ];
-    let compiler = Compiler::new(SegmentProfile::Flat32);
+    let compiler = Compiler::new(FLAT32);
     let blocks = compiler.compile_blocks(&snapshots).unwrap();
     assert_eq!(
         blocks.entries,
@@ -120,7 +121,7 @@ fn canonical_real_mode_guarantees_sixteen_bit_decoding() {
     let size = SegmentDefaultSize::Bits16;
     let observed = CpuState::default();
     assert_eq!(observed.code_default_size(), SegmentDefaultSize::Bits32);
-    let compiler = Compiler::new(ExecutionProfile::Real16).specialize_on_cpu(&observed);
+    let compiler = Compiler::new(REAL16).specialize_on_cpu(&observed);
     let bytes = [0xb8, 0x34, 0x12];
     let snapshot = BlockSnapshot {
         address: CodeAddress::CsRelative(0x1000),
@@ -215,9 +216,7 @@ fn real_mode_entries_split_only_at_boundaries_in_their_own_segment() {
         bytes: &[0x90, 0x90],
         instruction_limit: 2,
     });
-    let blocks = Compiler::new(ExecutionProfile::Real16)
-        .compile_blocks(&snapshots)
-        .unwrap();
+    let blocks = Compiler::new(REAL16).compile_blocks(&snapshots).unwrap();
     let entries: Vec<_> = blocks
         .entries
         .iter()
@@ -236,7 +235,7 @@ fn real_mode_entries_split_only_at_boundaries_in_their_own_segment() {
 #[test]
 fn an_entry_inside_an_encoding_does_not_split_the_instruction() {
     let code_default_size = SegmentDefaultSize::Bits32;
-    let blocks = Compiler::new(SegmentProfile::Flat32)
+    let blocks = Compiler::new(FLAT32)
         .compile_blocks(&[
             BlockSnapshot {
                 address: CodeAddress::CsRelative(0x1000),
@@ -259,7 +258,7 @@ fn an_entry_inside_an_encoding_does_not_split_the_instruction() {
 #[test]
 fn empty_input_is_valid_and_compilation_errors_are_reported() {
     let code_default_size = SegmentDefaultSize::Bits32;
-    let compiler = Compiler::new(SegmentProfile::Flat32);
+    let compiler = Compiler::new(FLAT32);
     let empty = compiler.compile_blocks(&[]).unwrap();
     assert!(empty.entries.is_empty());
     assert!(super::memory::imports(&empty.bytes).is_empty());
@@ -324,7 +323,7 @@ fn empty_input_is_valid_and_compilation_errors_are_reported() {
 }
 
 fn entry_boundaries() {
-    let compiler = Compiler::new(ExecutionProfile::Real16)
+    let compiler = Compiler::new(REAL16)
         .with_cpu_model(CpuModel::default().with_feature(CpuFeature::Cmov, false));
     let code_default_size = SegmentDefaultSize::Bits16;
     let snapshots = [
@@ -448,11 +447,11 @@ fn function_count(bytes: &[u8]) -> u32 {
 }
 
 fn shared_memory_helpers() {
-    for profile in [SegmentProfile::Flat32.into(), ExecutionProfile::Real16] {
-        let code_default_size = SegmentDefaultSize::for_profile(profile);
-        let compiler = Compiler::new(profile);
+    for config in [FLAT32, REAL16] {
+        let code_default_size = config.entry.fixed_code_default_size().unwrap();
+        let compiler = Compiler::new(config);
         // MOV EAX,[ECX]; MOV [EBX],EAX, with 32-bit operands and addresses in both modes.
-        let code: &[u8] = if profile == ExecutionProfile::Real16 {
+        let code: &[u8] = if config.entry.mode == Some(crate::ExecutionMode::Real) {
             &[0x66, 0x67, 0x8b, 0x01, 0x66, 0x67, 0x89, 0x03]
         } else {
             &[0x8b, 0x01, 0x89, 0x03]
@@ -474,7 +473,7 @@ fn shared_memory_helpers() {
             ])
             .unwrap();
         let single = compiler.compile_block(0x1000, code, 2).unwrap();
-        let mapping = if profile == ExecutionProfile::Real16 {
+        let mapping = if config.entry.mode == Some(crate::ExecutionMode::Real) {
             "physicalMap"
         } else {
             "machine"
@@ -502,12 +501,12 @@ fn shared_memory_helpers() {
             let mut image = Image::empty();
             image.cpu.instruction_count = 40;
             image.cpu.eip = entry.address.eip();
-            let physical = profile == ExecutionProfile::Real16;
+            let physical = config.entry.mode == Some(crate::ExecutionMode::Real);
             // Physical JIT operands fit one page; virtual accesses also exercise
             // the shared helpers for scattered backing across a page boundary.
             image.cpu.registers.ecx = if physical { 0x2ff0 } else { 0x2fff };
             image.cpu.registers.ebx = if physical { 0x4ff0 } else { 0x4fff };
-            if profile == ExecutionProfile::Real16 {
+            if config.entry.mode == Some(crate::ExecutionMode::Real) {
                 image.initialize_real_mode();
             }
             image.map(1, 0x1000, false);
@@ -538,7 +537,7 @@ fn shared_memory_helpers() {
                         exit: Exit::Dispatch(after.eip),
                     }]
                 ),
-                "{profile:?}, {}",
+                "{config:?}, {}",
                 entry.export,
             );
         }

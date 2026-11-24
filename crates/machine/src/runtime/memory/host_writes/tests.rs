@@ -1,7 +1,7 @@
 use super::*;
 use crate::{CpuConfig, Memory};
 use relocade_wasm_runtime::{SharedMemory, WasmBackend};
-use relocade_x86::{Compiler, CpuState, ExecutionProfile, PhysicalMapping};
+use relocade_x86::{CpuState, PhysicalMapping};
 
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -18,11 +18,7 @@ fn the_last_page_holder_restores_the_configured_write_route() {
     .unwrap();
     map.set_code_page(0x1000, true);
     let guest = Memory::new(MachineConfig::new(0x2000, map).unwrap()).unwrap();
-    let cpu = CpuConfig::new(
-        Compiler::new(ExecutionProfile::Real16).config(),
-        CpuState::real_mode(),
-    )
-    .unwrap();
+    let cpu = CpuConfig::pc(CpuState::real_mode()).unwrap();
     let binding = guest.attach_cpu(cpu).unwrap();
     let runtime = WasmRuntimeHandle::default();
     let memory = runtime

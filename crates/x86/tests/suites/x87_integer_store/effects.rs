@@ -1,9 +1,10 @@
 //! Integer-store memory guards, retained source values and sticky status.
 
 use super::*;
+use crate::support::config::FLAT32;
 
 fn operand_guards(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     let form = FORMS[4];
     let code = form.instruction(0x4ffc);
     let mut case = Case::masked((TOP, 0x7fff), i64::MIN, 0x41);
@@ -91,7 +92,7 @@ fn operand_guards(frontend: Frontend) {
 }
 
 fn source_and_sticky_status(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     let form = FORMS[1]; // FIST m32 keeps ST0 for the subsequent exact extended store.
     let code = [form.instruction(0x4000), vec![0xdb, 0x3d, 0x20, 0x40, 0, 0]].concat();
     let value = (0xc000_0000_0000_0000, 0xbfff); // -1.5
@@ -143,7 +144,7 @@ fn source_and_sticky_status(frontend: Frontend) {
 }
 
 fn load_then_integer_store(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (load, value, source) in [
         (
             [0xdf, 0x2d, 0, 0x40, 0, 0],

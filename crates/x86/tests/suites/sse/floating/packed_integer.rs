@@ -1,6 +1,7 @@
 //! Packed integer conversions aggregate exceptions and publish the entire result.
 
 use super::*;
+use crate::support::config::FLAT32;
 
 fn conversion_code(wide: bool, truncate: bool, modrm: u8) -> Vec<u8> {
     let prefix = match (wide, truncate) {
@@ -12,7 +13,7 @@ fn conversion_code(wide: bool, truncate: bool, modrm: u8) -> Vec<u8> {
 }
 
 fn lanes(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for wide in [false, true] {
         for truncate in [false, true] {
             let code = conversion_code(wide, truncate, 0xc0); // XMM0,XMM0
@@ -54,7 +55,7 @@ fn lanes(frontend: Frontend) {
 }
 
 fn exceptions(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for wide in [false, true] {
         let code = conversion_code(wide, false, 0xc1);
         for (mxcsr, raised, fault) in [
@@ -106,7 +107,7 @@ fn exceptions(frontend: Frontend) {
 }
 
 fn memory(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for wide in [false, true] {
         let code = conversion_code(wide, true, 0x00);
         for (address, fault) in [
@@ -151,7 +152,7 @@ test_frontends!(sse_packed_integer_exceptions, exceptions);
 test_frontends!(sse_packed_integer_memory, memory);
 
 fn boundaries(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for truncate in [false, true] {
         let code = conversion_code(true, truncate, 0xc1);
         for rc in 0..4 {

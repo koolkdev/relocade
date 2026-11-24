@@ -1,6 +1,7 @@
 use super::*;
+use crate::support::config::{FLAT32, SEGMENTED16, SEGMENTED32};
 use crate::support::machine::step_returns;
-use crate::SegmentProfile;
+
 use relocade_x86::SegmentRegister;
 
 #[test]
@@ -48,7 +49,7 @@ fn reloading_cs_changes_the_next_fetch_base_and_decode_defaults() {
         cpu.eip = 0x200;
         cpu.instruction_count = 0;
         check_one(
-            ExecutionProfile::Protected(SegmentProfile::Flat32),
+            FLAT32,
             &code,
             &image,
             &[SegmentResolution::new(&tables, Segment::Cs, 0x1b)],
@@ -64,11 +65,7 @@ fn reloading_cs_changes_the_next_fetch_base_and_decode_defaults() {
         cpu.eip += next_code.len() as u32;
         cpu.instruction_count = 1;
         check_one(
-            if next_word {
-                ExecutionProfile::Protected(SegmentProfile::Segmented16)
-            } else {
-                ExecutionProfile::Protected(SegmentProfile::Segmented32)
-            },
+            if next_word { SEGMENTED16 } else { SEGMENTED32 },
             next_code,
             &image,
             &[],
@@ -92,7 +89,7 @@ fn destination_paging_happens_on_the_next_fetch_after_the_jump_retires() {
     cpu.eip = 0x200;
     cpu.instruction_count = 0;
     check_one(
-        ExecutionProfile::Protected(SegmentProfile::Flat32),
+        FLAT32,
         &code,
         &image,
         &[SegmentResolution::new(&tables, Segment::Cs, 0x27)],
@@ -104,10 +101,7 @@ fn destination_paging_happens_on_the_next_fetch_after_the_jump_retires() {
     );
     image.cpu = cpu;
     assert_eq!(
-        TestModule::interpreter_with_profile(ExecutionProfile::Protected(
-            SegmentProfile::Segmented32
-        ))
-        .observe(&image.input(), 1),
+        TestModule::interpreter_with_config(SEGMENTED32).observe(&image.input(), 1),
         step_returns(expected(
             &image,
             &[Step {
@@ -167,15 +161,8 @@ fn both_far_jump_forms_end_the_block_without_fetching_old_fallthrough() {
             .insert(1, Event::CompleteSegmentLoad { selector: 0x27 });
         let mut blocks = BlockModules::default();
         for module in [
-            blocks.get(
-                &image.cpu,
-                &code,
-                2,
-                ExecutionProfile::Protected(SegmentProfile::Segmented32),
-            ),
-            TestModule::interpreter_with_profile(ExecutionProfile::Protected(
-                SegmentProfile::Segmented32,
-            )),
+            blocks.get(&image.cpu, &code, 2, SEGMENTED32),
+            TestModule::interpreter_with_config(SEGMENTED32),
         ] {
             assert_eq!(module.observe(&input, 1), module.expected(wanted.clone()));
         }

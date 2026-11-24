@@ -1,11 +1,12 @@
-use crate::{CpuState, ExecutionProfile, Segment, SegmentProfile, SegmentRegister, Segments};
+use crate::support::config::{FLAT32, REAL16, SEGMENTED16, SEGMENTED32};
+use crate::{CpuState, Segment, SegmentRegister, Segments};
 
 fn compatible(segments: &Segments) -> bool {
-    segments.is_compatible_with(SegmentProfile::Flat32)
+    segments.is_compatible_with(FLAT32.entry)
 }
 
 #[test]
-fn explicit_flat_initialization_satisfies_the_profile() {
+fn explicit_flat_initialization_satisfies_flat_segment_guarantees() {
     assert!(compatible(&Segments::flat32()));
     assert!(compatible(&CpuState::default().segments));
     assert!(!compatible(&Segments::default()));
@@ -26,7 +27,7 @@ fn base_or_limit_changes_break_each_assumed_flat_segment() {
 }
 
 #[test]
-fn unusable_caches_break_the_profile_even_with_nonzero_selectors() {
+fn unusable_caches_fail_flat_admission_even_with_nonzero_selectors() {
     for segment in [Segment::Cs, Segment::Ds, Segment::Es, Segment::Ss] {
         let mut segments = Segments::flat32();
         segments[segment].selector = 0x23;
@@ -48,16 +49,16 @@ fn code_defaults_and_stack_width_are_separate_requirements() {
     segments.es.big = 0;
     assert!(
         compatible(&segments),
-        "ordinary data D/B does not constrain this profile"
+        "ordinary data D/B does not constrain this config"
     );
 }
 
 #[test]
-fn code_permissions_are_runtime_checks_in_the_segmented_profile() {
+fn segmented_code_checks_permissions_at_runtime() {
     let mut segments = Segments::flat32();
     segments.cs.readable = 0;
     assert!(!compatible(&segments));
-    assert!(segments.is_compatible_with(SegmentProfile::Segmented32));
+    assert!(segments.is_compatible_with(SEGMENTED32.entry));
     for cache in [
         SegmentRegister::flat_data32(0x1b),
         SegmentRegister {
@@ -67,7 +68,7 @@ fn code_permissions_are_runtime_checks_in_the_segmented_profile() {
     ] {
         segments.cs = cache;
         assert!(!compatible(&segments));
-        assert!(segments.is_compatible_with(SegmentProfile::Segmented32));
+        assert!(segments.is_compatible_with(SEGMENTED32.entry));
     }
 }
 
@@ -88,7 +89,7 @@ fn assumed_data_segments_require_writable_expand_up_data() {
 }
 
 #[test]
-fn ring_three_selectors_preserve_profile_assumptions() {
+fn ring_three_selectors_preserve_entry_assumptions() {
     let mut segments = Segments::flat32();
     for (segment, selector) in Segment::ALL
         .into_iter()
@@ -100,7 +101,7 @@ fn ring_three_selectors_preserve_profile_assumptions() {
 }
 
 #[test]
-fn fs_and_gs_changes_do_not_break_the_flat_profile() {
+fn flat_entry_allows_fs_and_gs_changes() {
     let mut segments = Segments::flat32();
     segments.fs = SegmentRegister {
         base: 0x1234_5000,
@@ -112,11 +113,8 @@ fn fs_and_gs_changes_do_not_break_the_flat_profile() {
 }
 
 #[test]
-fn segmented_profiles_keep_access_checks_dynamic_with_ring_three_code_defaults() {
-    for (profile, code_big) in [
-        (SegmentProfile::Segmented16, 0),
-        (SegmentProfile::Segmented32, 1),
-    ] {
+fn segmented_code_checks_access_with_either_ring_three_code_default() {
+    for (config, code_big) in [(SEGMENTED16, 0), (SEGMENTED32, 1)] {
         for segment in Segment::ALL {
             let mut segments = Segments::flat32();
             segments[segment] = SegmentRegister {
@@ -126,15 +124,15 @@ fn segmented_profiles_keep_access_checks_dynamic_with_ring_three_code_defaults()
                 ..SegmentRegister::default()
             };
             segments.cs.big = code_big;
-            assert!(segments.is_compatible_with(profile));
+            assert!(segments.is_compatible_with(config.entry));
             segments.cs.big = 1 - code_big;
-            assert!(!segments.is_compatible_with(profile));
+            assert!(!segments.is_compatible_with(config.entry));
         }
     }
 }
 
 #[test]
-fn profile_constants_require_canonical_boolean_bytes() {
+fn entry_constants_require_canonical_boolean_bytes() {
     for segment in [Segment::Cs, Segment::Ds, Segment::Es, Segment::Ss] {
         let mut segments = Segments::flat32();
         segments[segment].usable = 2;
@@ -142,13 +140,13 @@ fn profile_constants_require_canonical_boolean_bytes() {
     }
     let mut segments = Segments::flat32();
     segments.cs.big = 2;
-    assert!(!segments.is_compatible_with(SegmentProfile::Segmented32));
+    assert!(!segments.is_compatible_with(SEGMENTED32.entry));
 }
 
 #[test]
 fn real_mode_requires_canonical_caches_but_accepts_every_segment_value() {
     let mut segments = Segments::real_mode();
-    assert!(segments.is_compatible_with(ExecutionProfile::Real16));
+    assert!(segments.is_compatible_with(REAL16.entry));
     for segment in Segment::ALL {
         for selector in [0, 3, 4, 0xffff] {
             let cache = SegmentRegister::real_mode(segment, selector);
@@ -158,7 +156,7 @@ fn real_mode_requires_canonical_caches_but_accepts_every_segment_value() {
             assert_eq!(cache.executable, u8::from(segment == Segment::Cs));
             assert_eq!(cache.writable, u8::from(segment != Segment::Cs));
             segments[segment] = cache;
-            assert!(segments.is_compatible_with(ExecutionProfile::Real16));
+            assert!(segments.is_compatible_with(REAL16.entry));
             for bad in [
                 SegmentRegister {
                     base: cache.base + 1,
@@ -172,10 +170,10 @@ fn real_mode_requires_canonical_caches_but_accepts_every_segment_value() {
                 SegmentRegister::unusable(selector),
             ] {
                 segments[segment] = bad;
-                assert!(!segments.is_compatible_with(ExecutionProfile::Real16));
+                assert!(!segments.is_compatible_with(REAL16.entry));
             }
             segments[segment] = cache;
         }
     }
-    assert!(!Segments::flat32().is_compatible_with(ExecutionProfile::Real16));
+    assert!(!Segments::flat32().is_compatible_with(REAL16.entry));
 }

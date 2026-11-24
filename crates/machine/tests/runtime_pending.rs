@@ -2,10 +2,7 @@
 mod exit;
 mod support;
 use relocade_machine::{real_mode_interrupt, Hook};
-use relocade_x86::{
-    Compiler, CpuState, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
-    PhysicalMemoryMap,
-};
+use relocade_x86::{CpuState, ExecutionExit, HostExit, PhysicalMapping, PhysicalMemoryMap};
 use std::{
     cell::{Cell, RefCell},
     collections::VecDeque,
@@ -89,7 +86,6 @@ fn assert_pending(future: impl Future) {
 
 async fn check_pending_calls() {
     let config = support::configuration(
-        Compiler::new(ExecutionProfile::Real16).config(),
         CpuState {
             eip: 0x100,
             ..CpuState::real_mode()
@@ -286,7 +282,6 @@ async fn pending_services_preserve_locals_across_waiters_and_execution_interrupt
 
 async fn check_completed_replacement() {
     let config = support::configuration(
-        Compiler::new(ExecutionProfile::Real16).config(),
         CpuState {
             eip: 0x400,
             ..CpuState::real_mode()
@@ -383,7 +378,6 @@ fn custom_completion(
 
 async fn check_custom_completion() {
     let config = support::configuration(
-        Compiler::new(ExecutionProfile::Real16).config(),
         CpuState {
             eip: 0x400,
             ..CpuState::real_mode()
@@ -429,7 +423,6 @@ async fn custom_future_keeps_access_through_completion_after_the_cpu_moves() {
 async fn check_completion_and_abandonment() {
     for complete in [false, true] {
         let config = support::configuration(
-            Compiler::new(ExecutionProfile::Real16).config(),
             CpuState {
                 eip: 0x400,
                 ..CpuState::real_mode()

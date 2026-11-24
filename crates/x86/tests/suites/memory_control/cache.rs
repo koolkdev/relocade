@@ -1,6 +1,7 @@
 //! Prefetch is a non-faulting hint; CLFLUSH checks one byte without loading data.
 
 use super::*;
+use crate::support::config::{FLAT32, REAL16, SEGMENTED32};
 use crate::support::{
     blocks::BlockModules, encoding::check_length, machine::expected, step::TestModule,
 };
@@ -13,7 +14,7 @@ fn retired(mut cpu: relocade_x86::CpuState, length: usize) -> relocade_x86::CpuS
 }
 
 fn prefetch(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Segmented32);
+    let mut checks = ImageSequences::new(frontend, SEGMENTED32);
     for hint in 0..4 {
         let code = [0x64, 0x66, 0x0f, 0x18, hint << 3];
         let mut image = Image::new(&code);
@@ -36,7 +37,7 @@ fn prefetch(frontend: Frontend) {
 
 fn flush(frontend: Frontend) {
     let code = [0x0f, 0xae, 0x38]; // CLFLUSH [eax]
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for present in [false, true] {
         let mut image = Image::new(&code);
         image.cpu.registers.eax = 0x4fff;
@@ -96,7 +97,7 @@ fn flush(frontend: Frontend) {
 }
 
 fn segment_permissions(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Segmented32);
+    let mut checks = ImageSequences::new(frontend, SEGMENTED32);
     for (cache, limit, allowed) in [
         (
             SegmentRegister {
@@ -202,10 +203,8 @@ fn physical_addresses(frontend: Frontend) {
                 }],
             );
             let module = match frontend {
-                Frontend::Block => blocks.get(&image.cpu, &code, 1, ExecutionProfile::Real16),
-                Frontend::Interpreter => {
-                    TestModule::interpreter_with_profile(ExecutionProfile::Real16)
-                }
+                Frontend::Block => blocks.get(&image.cpu, &code, 1, REAL16),
+                Frontend::Interpreter => TestModule::interpreter_with_config(REAL16),
             };
             assert_eq!(
                 module.observe(&input, 1),

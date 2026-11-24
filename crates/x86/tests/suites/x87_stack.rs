@@ -7,6 +7,7 @@ mod faults;
 #[path = "x87_stack/memory.rs"]
 mod memory;
 
+use crate::support::config::FLAT32;
 use crate::support::{
     execution::{test_frontends, Frontend, ImageSequences},
     machine::{Exit, Step},
@@ -15,13 +16,10 @@ use crate::support::{
         stack_image as initial_image, status, write_register_bits, INDEFINITE,
     },
 };
-use relocade_x86::{ExecutionProfile, SegmentProfile, X87Status};
+use relocade_x86::X87Status;
 
 fn register_moves(frontend: Frontend) {
-    let mut checks = ImageSequences::new(
-        frontend,
-        ExecutionProfile::Protected(SegmentProfile::Flat32),
-    );
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     // Source indices are resolved before a push or pop changes TOP.
     for (name, code, top, tags, source, destination, final_top, final_tags, opcode) in [
         (
@@ -114,10 +112,7 @@ fn register_moves(frontend: Frontend) {
 }
 
 fn raw_register_copies(frontend: Frontend) {
-    let mut checks = ImageSequences::new(
-        frontend,
-        ExecutionProfile::Protected(SegmentProfile::Flat32),
-    );
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     let code = [0xd9, 0xc0, 0xdd, 0xd3, 0xd9, 0xcb];
     for (name, bits, original_tags, pushed_tags, copied_tags) in [
         ("signed zero", (0, 0x8000), 0xfffd, 0x7ffd, 0x7fdd),
@@ -164,10 +159,7 @@ fn raw_register_copies(frontend: Frontend) {
 }
 
 fn stack_controls(frontend: Frontend) {
-    let mut checks = ImageSequences::new(
-        frontend,
-        ExecutionProfile::Protected(SegmentProfile::Flat32),
-    );
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     let code = [0xdd, 0xc3, 0xd9, 0xf7, 0xd9, 0xf6];
     let image = initial_image(&code, 7, 0);
     let mut freed = complete(image.cpu, 2, 0x05c3);

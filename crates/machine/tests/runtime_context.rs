@@ -1,9 +1,6 @@
 mod support;
 use relocade_machine::Hook;
-use relocade_x86::{
-    Compiler, CpuState, ExecutionExit, ExecutionProfile, HostExit, PhysicalMapping,
-    PhysicalMemoryMap,
-};
+use relocade_x86::{CpuState, ExecutionExit, HostExit, PhysicalMapping, PhysicalMemoryMap};
 use std::{
     cell::{Cell, RefCell},
     future::{poll_fn, Future},
@@ -29,7 +26,6 @@ impl Drop for Environment {
 
 async fn check_context_lifetime() {
     let config = support::configuration(
-        Compiler::new(ExecutionProfile::Real16).config(),
         CpuState {
             eip: 0x100,
             ..CpuState::real_mode()
@@ -126,7 +122,6 @@ async fn captured_state_outlives_pending_work_and_is_released_with_the_cpu() {
 
 async fn check_retained_cpu_state() {
     let config = support::configuration(
-        Compiler::new(ExecutionProfile::Real16).config(),
         CpuState {
             eip: 0x100,
             ..CpuState::real_mode()

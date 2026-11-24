@@ -6,6 +6,7 @@ mod boundaries;
 mod range;
 
 use super::*;
+use crate::support::config::FLAT32;
 use crate::support::{machine::expected, step::TestModule};
 use relocade_x86::{Compiler, CpuState};
 use wasmparser::{Operator, Parser, Payload};
@@ -20,7 +21,7 @@ fn assert_native_multiply(module: &TestModule) {
 fn compiler() -> Compiler {
     let mut observed = CpuState::default();
     observed.x87.control.precision_control = 2;
-    Compiler::new(SegmentProfile::Flat32).specialize_on_cpu(&observed)
+    Compiler::new(FLAT32).specialize_on_cpu(&observed)
 }
 
 fn rounding_and_forms() {

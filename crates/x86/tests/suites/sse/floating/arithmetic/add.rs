@@ -1,7 +1,8 @@
 use super::*;
+use crate::support::config::FLAT32;
 
 fn rounding(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for rc in 0..4 {
         let controls = 0x1f80 | rc << 13;
         for (opcode, left, right, result, raised) in [
@@ -75,7 +76,7 @@ fn rounding(frontend: Frontend) {
 }
 
 fn special(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     Case {
         left: TWO,
         right: ONE,
@@ -140,7 +141,7 @@ fn special(frontend: Frontend) {
 }
 
 fn packed_priority(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     let code = encoding(&[], 0x58, 0xc1);
     for (controls, raised) in [(0x1f80, 33), (0x1f00, 1), (0x0f80, 33)] {
         let mut image = floating_image(&code, controls);
@@ -177,7 +178,7 @@ fn packed_priority(frontend: Frontend) {
 }
 
 fn memory(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for wide in [false, true] {
         for packed in [false, true] {
             let code = encoding(prefix(wide, packed), 0x58, 0x00);

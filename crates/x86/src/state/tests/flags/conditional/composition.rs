@@ -44,7 +44,7 @@ fn every_predicate_must_hold_for_complete_and_partial_changes() {
             });
             program.export("run", function).unwrap();
             let module = TestModule::new(&CompiledModule {
-                execution_target: None,
+                config: None,
                 bytes: program.compile().unwrap(),
                 entry: "run".into(),
             });
@@ -137,7 +137,7 @@ fn preserving_carry_keeps_the_predicate_in_either_order() {
                     });
                     program.export("run", function).unwrap();
                     let module = TestModule::new(&CompiledModule {
-                        execution_target: None,
+                        config: None,
                         bytes: program.compile().unwrap(),
                         entry: "run".into(),
                     });

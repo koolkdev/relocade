@@ -1,4 +1,5 @@
 use super::*;
+use crate::support::config::REAL16;
 use wasmparser::{Parser, Payload};
 
 fn imports(bytes: &[u8]) -> Vec<String> {
@@ -96,7 +97,7 @@ fn physical_fields_reuse_the_span_lookup() {
 
 #[test]
 fn compiled_memory_operands_load_one_physical_page_record() {
-    let compiler = crate::Compiler::new(crate::ExecutionProfile::Real16);
+    let compiler = crate::Compiler::new(REAL16);
     for code in [
         &[0x8b, 0x07][..],   // MOV AX,[BX]
         &[0x67, 0x89, 0x00], // MOV [EAX],AX

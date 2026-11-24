@@ -1,12 +1,13 @@
 //! A disabled target must omit budget-specific work while retaining interrupts.
 
-use crate::{Compiler, SegmentProfile};
+use crate::support::config::FLAT32;
+use crate::Compiler;
 use wasmparser::{Operator, Parser, Payload};
 
 #[test]
 fn disabled_targets_omit_budget_loads_and_comparisons() {
     for enabled in [false, true] {
-        let module = Compiler::new(SegmentProfile::Flat32)
+        let module = Compiler::new(FLAT32)
             .with_instruction_budgets(enabled)
             .compile_block(0x1000, &[0x90, 0xeb, 0], 2)
             .unwrap();

@@ -1,6 +1,6 @@
 use super::*;
+use crate::support::config::{FLAT32, SEGMENTED32};
 use crate::support::machine::step_returns;
-use crate::SegmentProfile;
 
 #[test]
 fn the_complete_pointer_segment_check_precedes_paging_and_resolution() {
@@ -73,7 +73,7 @@ fn the_complete_pointer_segment_check_precedes_paging_and_resolution() {
                 );
                 // Both destinations and the resolver remain untouched on any source fault.
                 check_one(
-                    ExecutionProfile::Protected(SegmentProfile::Segmented32),
+                    SEGMENTED32,
                     &code,
                     &image,
                     &[],
@@ -138,7 +138,7 @@ fn failed_resolution_preserves_the_destination_gpr_and_complete_segment_cache() 
             );
         }
         check_one(
-            ExecutionProfile::Protected(SegmentProfile::Flat32),
+            FLAT32,
             &code,
             &image,
             &[SegmentResolution::new(&tables, segment, selector)],
@@ -208,12 +208,7 @@ fn pointer_load_faults_publish_earlier_flags_register_store_and_retirement_progr
         step_returns(wanted.clone())
     );
     let mut blocks = BlockModules::default();
-    let block = blocks.get(
-        &image.cpu,
-        &code,
-        3,
-        ExecutionProfile::Protected(SegmentProfile::Flat32),
-    );
+    let block = blocks.get(&image.cpu, &code, 3, FLAT32);
     let mut wanted = expected(&image, &[fault()]);
     wanted.events.insert(0, event);
     assert_eq!(block.observe(&input, 1), wanted);

@@ -54,7 +54,7 @@ fn partial_carry_changes_unsigned_conditions_and_retains_subtraction_results() {
             program.export(name, function).unwrap();
         }
         CompiledModule {
-            execution_target: None,
+            config: None,
             bytes: program.compile().unwrap(),
             entry: "result".into(),
         }
@@ -110,7 +110,7 @@ fn changing_another_flag_retains_an_earlier_partial_change() {
     });
     program.export("run", function).unwrap();
     let module = TestModule::new(&CompiledModule {
-        execution_target: None,
+        config: None,
         bytes: program.compile().unwrap(),
         entry: "run".into(),
     });

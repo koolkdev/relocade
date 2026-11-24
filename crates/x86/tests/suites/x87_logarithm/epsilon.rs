@@ -2,10 +2,10 @@
 
 use super::values::Reference;
 use super::*;
-
 #[path = "epsilon_values.rs"]
 mod fixtures;
 
+use crate::support::config::FLAT32;
 const CODE: [u8; 2] = [0xd9, 0xf9];
 
 #[test]
@@ -18,7 +18,7 @@ fn values(frontend: Frontend) {
 }
 
 fn exceptions(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     let one = (LEAD, 0x3fff);
     let quarter = (LEAD, 0x3ffd);
     let infinity = (LEAD, 0x7fff);
@@ -77,7 +77,7 @@ fn exceptions(frontend: Frontend) {
 
 #[test]
 fn jit_specialization() {
-    let compiled = Compiler::new(SegmentProfile::Flat32)
+    let compiled = Compiler::new(FLAT32)
         .compile_block(0x1000, &CODE, 1)
         .unwrap();
     let module = TestModule::new(&compiled);

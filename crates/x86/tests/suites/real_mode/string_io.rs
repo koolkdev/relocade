@@ -1,4 +1,5 @@
 use super::*;
+use crate::support::config::{FLAT32, REAL16};
 use crate::support::{
     blocks::BlockModules,
     machine::expected,
@@ -35,14 +36,10 @@ fn transfers(frontend: Frontend) {
         image.data(0x8000, &[0x5a; 64]);
         let module = match frontend {
             Frontend::Block => blocks
-                .get(&image.cpu, code, 8, ExecutionProfile::Real16)
+                .get(&image.cpu, code, 8, REAL16)
                 .clone()
-                .with_interpreter(TestModule::interpreter_with_profile(
-                    ExecutionProfile::Real16,
-                )),
-            Frontend::Interpreter => {
-                TestModule::interpreter_with_profile(ExecutionProfile::Real16).clone()
-            }
+                .with_interpreter(TestModule::interpreter_with_config(REAL16)),
+            Frontend::Interpreter => TestModule::interpreter_with_config(REAL16).clone(),
         };
         let mut input = image.input();
         let count = if repeat { 3 } else { 1 };
@@ -101,7 +98,7 @@ fn transfers(frontend: Frontend) {
         wanted.events.splice(0..0, events);
         assert_eq!(
             module.observe(&input, 1),
-            TestModule::interpreter_with_profile(ExecutionProfile::Real16).expected(wanted.clone()),
+            TestModule::interpreter_with_config(REAL16).expected(wanted.clone()),
             "{code:02x?}"
         );
     }
@@ -125,14 +122,10 @@ fn faults(frontend: Frontend) {
             image.data(0x8ffe, &[0x34, 0x12]);
             let module = match frontend {
                 Frontend::Block => blocks
-                    .get(&image.cpu, &code, 1, ExecutionProfile::Real16)
+                    .get(&image.cpu, &code, 1, REAL16)
                     .clone()
-                    .with_interpreter(TestModule::interpreter_with_profile(
-                        ExecutionProfile::Real16,
-                    )),
-                Frontend::Interpreter => {
-                    TestModule::interpreter_with_profile(ExecutionProfile::Real16).clone()
-                }
+                    .with_interpreter(TestModule::interpreter_with_config(REAL16)),
+                Frontend::Interpreter => TestModule::interpreter_with_config(REAL16).clone(),
             };
             let mut input = image.input();
             let mut cpu = image.cpu;
@@ -172,8 +165,7 @@ fn faults(frontend: Frontend) {
             wanted.events.splice(0..0, events);
             assert_eq!(
                 module.observe(&input, 1),
-                TestModule::interpreter_with_profile(ExecutionProfile::Real16)
-                    .expected(wanted.clone())
+                TestModule::interpreter_with_config(REAL16).expected(wanted.clone())
             );
         }
     }
@@ -242,18 +234,14 @@ fn segments_and_mmio(frontend: Frontend) {
         wanted.events.splice(0..0, events);
         let module = match frontend {
             Frontend::Block => blocks
-                .get(&image.cpu, &code, 8, ExecutionProfile::Real16)
+                .get(&image.cpu, &code, 8, REAL16)
                 .clone()
-                .with_interpreter(TestModule::interpreter_with_profile(
-                    ExecutionProfile::Real16,
-                )),
-            Frontend::Interpreter => {
-                TestModule::interpreter_with_profile(ExecutionProfile::Real16).clone()
-            }
+                .with_interpreter(TestModule::interpreter_with_config(REAL16)),
+            Frontend::Interpreter => TestModule::interpreter_with_config(REAL16).clone(),
         };
         assert_eq!(
             module.observe(&input, 1),
-            TestModule::interpreter_with_profile(ExecutionProfile::Real16).expected(wanted.clone())
+            TestModule::interpreter_with_config(REAL16).expected(wanted.clone())
         );
     }
     // A 16-bit index wraps between complete elements, preserving its high word.
@@ -293,33 +281,29 @@ fn segments_and_mmio(frontend: Frontend) {
     );
     let module = match frontend {
         Frontend::Block => blocks
-            .get(&image.cpu, &code, 8, ExecutionProfile::Real16)
+            .get(&image.cpu, &code, 8, REAL16)
             .clone()
-            .with_interpreter(TestModule::interpreter_with_profile(
-                ExecutionProfile::Real16,
-            )),
-        Frontend::Interpreter => {
-            TestModule::interpreter_with_profile(ExecutionProfile::Real16).clone()
-        }
+            .with_interpreter(TestModule::interpreter_with_config(REAL16)),
+        Frontend::Interpreter => TestModule::interpreter_with_config(REAL16).clone(),
     };
     assert_eq!(
         module.observe(&input, 1),
-        TestModule::interpreter_with_profile(ExecutionProfile::Real16).expected(wanted.clone())
+        TestModule::interpreter_with_config(REAL16).expected(wanted.clone())
     );
 }
 test_frontends!(string_port_segments_and_mmio, segments_and_mmio);
 
 fn privilege(frontend: Frontend) {
     let mut blocks = BlockModules::default();
-    let profile = ExecutionProfile::Protected(relocade_x86::SegmentProfile::Flat32);
+    let config = FLAT32;
     for opcode in [0x6d, 0x6f] {
         for count in [0, 1] {
             let code = [0xf3, opcode];
             let mut image = Image::new(&code);
             image.cpu.registers.ecx = count;
             let module = match frontend {
-                Frontend::Block => blocks.get(&image.cpu, &code, 8, profile),
-                Frontend::Interpreter => TestModule::interpreter_with_profile(profile),
+                Frontend::Block => blocks.get(&image.cpu, &code, 8, config),
+                Frontend::Interpreter => TestModule::interpreter_with_config(config),
             };
             image.check_unchanged_exit(
                 module,

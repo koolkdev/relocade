@@ -10,7 +10,6 @@ async fn check_retained_memory_bus() {
     let weak_bus = io.downgrade();
     drop(device);
     let config = support::configuration(
-        Compiler::new(ExecutionProfile::Real16).config(),
         CpuState {
             eip: 0x100,
             ..CpuState::real_mode()
@@ -83,13 +82,7 @@ async fn retained_memory_bus_survives_cpu_and_releases_devices() {
 
 #[cfg(not(target_arch = "wasm32"))]
 async fn cpu(io: IoBus) -> Cpu {
-    let config = support::configuration(
-        Compiler::new(ExecutionProfile::Real16).config(),
-        CpuState::real_mode(),
-        0x5000,
-        map(),
-    )
-    .unwrap();
+    let config = support::configuration(CpuState::real_mode(), 0x5000, map()).unwrap();
     Cpu::new(Memory::new(config.machine).unwrap(), config.cpu, io)
         .await
         .unwrap()

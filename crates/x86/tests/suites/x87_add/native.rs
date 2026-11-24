@@ -1,6 +1,7 @@
 //! PC53/nearest sums retain x87 signs, rounding status and exponent range.
 
 use super::*;
+use crate::support::config::FLAT32;
 use crate::support::machine::step_returns;
 use crate::support::{machine::expected, step::TestModule, x87::set_control};
 use relocade_x86::{Compiler, CpuState};
@@ -9,7 +10,7 @@ use wasmparser::{Operator, Parser, Payload};
 fn compiler() -> Compiler {
     let mut observed = CpuState::default();
     observed.x87.control.precision_control = 2;
-    Compiler::new(SegmentProfile::Flat32).specialize_on_cpu(&observed)
+    Compiler::new(FLAT32).specialize_on_cpu(&observed)
 }
 
 fn native_module(code: &[u8], count: u32) -> TestModule {

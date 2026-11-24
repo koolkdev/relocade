@@ -1,9 +1,9 @@
-//! Profile-specialized snapshots preserve per-instruction restart boundaries.
+//! Snapshots specialized for fixed-width code preserve per-instruction restart boundaries.
 
+#[path = "segmented_blocks/configurations.rs"]
+mod configurations;
 #[path = "segmented_blocks/fetch_boundary.rs"]
 mod fetch_boundary;
-#[path = "segmented_blocks/profiles.rs"]
-mod profiles;
 #[path = "segmented_blocks/progress.rs"]
 mod progress;
 

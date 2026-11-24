@@ -1,7 +1,7 @@
+use crate::support::config::FLAT32;
 use crate::support::step;
 use relocade_x86::{
     compile_block_from_bytes, BlockError, CompiledModule, Compiler, CpuState, Registers,
-    SegmentProfile,
 };
 use step::{Event, Input, Observation, Snapshot, TestModule};
 use wasmparser::{ExternalKind, Operator, Parser, Payload, TypeRef, ValType, Validator};
@@ -62,7 +62,7 @@ fn instruction_limit_excludes_valid_partial_and_unsupported_suffixes() {
 #[test]
 fn budgetless_blocks_publish_once_in_first_write_order_before_tail_dispatch() {
     // Check publication and dispatch without the optional budget checkpoint.
-    let block = Compiler::new(SegmentProfile::Flat32)
+    let block = Compiler::new(FLAT32)
         .with_instruction_budgets(false)
         .compile_block(0x1000, FIRST_WRITE_ORDER, 3)
         .unwrap();
@@ -364,7 +364,7 @@ fn register_mov_requires_its_modrm_byte() {
 fn register_copies_forward_values_and_omit_redundant_backing_accesses() {
     fn accesses(bytes: &[u8], instructions: u32) -> (Vec<u64>, Vec<u64>) {
         // Budget checks own separate control loads; this test owns register forwarding.
-        let module = Compiler::new(SegmentProfile::Flat32)
+        let module = Compiler::new(FLAT32)
             .with_instruction_budgets(false)
             .compile_block(0x1000, bytes, instructions)
             .unwrap();

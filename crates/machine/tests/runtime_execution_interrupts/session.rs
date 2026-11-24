@@ -265,7 +265,6 @@ async fn stopping_a_busy_session_uses_the_same_execution_interrupt() {
 
 async fn saturated_count() {
     let config = support::configuration(
-        Compiler::new(ExecutionProfile::Real16).config(),
         CpuState {
             eip: 0x100,
             instruction_count: u64::MAX,
@@ -369,9 +368,9 @@ async fn notified_reentry() {
                 let (exit, count) = join(execution, input).await;
                 assert_eq!(exit, ExecutionExit::Host(relocade_x86::HostExit::Return));
                 assert!(
-                (1..=2).contains(&count),
-                "ready Rust work must run by the next guest checkpoint; retired {count} instructions"
-            );
+                    (1..=2).contains(&count),
+                    "ready Rust work must run by the next guest checkpoint; retired {count} instructions"
+                );
             },
         );
         assert_eq!(worker.join().await.unwrap(), Some(()));

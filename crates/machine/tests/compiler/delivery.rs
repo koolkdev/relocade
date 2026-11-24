@@ -26,7 +26,7 @@ async fn receive_while_running(compiler: &relocade_machine::CompilerService) {
     memory.view().write(0x200, &[0xbb, 42, 0, 0xeb, 0]).unwrap(); // MOV BX,42; JMP 0205
     let cpu = machine.create_cpu(config, Some(compiler)).unwrap();
     let execution = ExecutionWorker::spawn(cpu, SessionConfig::host(), async |mut runner| {
-        let target = runner.cpu().cpu_state().compiler_config();
+        let compiler_config = runner.cpu().cpu_state().compiler_config();
         let mut compiler = runner.take_compiler().unwrap();
         let exit = runner.cpu().exit_handle();
         runner
@@ -49,7 +49,7 @@ async fn receive_while_running(compiler: &relocade_machine::CompilerService) {
             }
             compiler
                 .request(
-                    target,
+                    compiler_config,
                     vec![BlockRequest {
                         entry: FarPointer {
                             segment: 0,

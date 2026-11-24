@@ -1,6 +1,7 @@
 use super::*;
+use crate::support::config::FLAT32;
 use crate::support::encoding::check_length;
-use crate::SegmentProfile;
+
 use relocade_x86::SegmentRegister;
 use relocade_x86::{compile_block_from_bytes, BlockError};
 
@@ -94,7 +95,7 @@ fn immediate_pointers_and_return_cleanup_cross_instruction_pages_in_order() {
             vec![(if word { 0x8004 } else { 0x8000 }, saved.as_slice())]
         };
         check_one(
-            ExecutionProfile::Protected(SegmentProfile::Flat32),
+            FLAT32,
             &code,
             &image,
             &[SegmentResolution::new(&tables(0xffff), Segment::Cs, 0x27)],
@@ -143,7 +144,7 @@ fn byte_sixteen_and_register_mode_far_calls_are_rejected_before_data_access() {
                     &[(0x8000, &[0, 0x20, 0, 0, 0x1b, 0])]
                 };
                 check_one(
-                    ExecutionProfile::Protected(SegmentProfile::Flat32),
+                    FLAT32,
                     &code,
                     &image,
                     &[SegmentResolution::new(&tables(0xffff), Segment::Cs, 0x27)],

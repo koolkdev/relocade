@@ -1,6 +1,7 @@
 //! Integer sources round to binary32; binary64 conversion is always exact.
 
 use super::*;
+use crate::support::config::FLAT32;
 
 fn conversion_code(wide: bool, packed: bool, modrm: u8) -> Vec<u8> {
     if packed {
@@ -15,7 +16,7 @@ fn conversion_code(wide: bool, packed: bool, modrm: u8) -> Vec<u8> {
 }
 
 fn scalar(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for wide in [false, true] {
         let code = conversion_code(wide, false, 0xc0); // XMM0,EAX
         for (integer, singles, inexact) in [
@@ -97,7 +98,7 @@ fn scalar(frontend: Frontend) {
 }
 
 fn packed(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for wide in [false, true] {
         let code = conversion_code(wide, true, 0xc0); // XMM0,XMM0
         for rc in 0..4 {
@@ -143,7 +144,7 @@ fn packed(frontend: Frontend) {
 }
 
 fn memory(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for wide in [false, true] {
         for packed in [false, true] {
             let code = conversion_code(wide, packed, 0x00);
@@ -204,7 +205,7 @@ fn memory(frontend: Frontend) {
 }
 
 fn packed_precision(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     let code = conversion_code(false, true, 0xc1);
     for (source, encodings, inexact) in [
         (

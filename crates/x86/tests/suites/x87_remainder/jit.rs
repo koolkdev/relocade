@@ -1,6 +1,7 @@
 //! Native quotient estimates, preserved precision, and precise restart boundaries.
 
 use super::*;
+use crate::support::config::FLAT32;
 use crate::support::machine::step_returns;
 use crate::support::{machine::expected, step::TestModule, x87::INDEFINITE};
 use relocade_x86::Compiler;
@@ -28,7 +29,7 @@ fn native_quotient(opcode: u8) {
         0xdd, 0x05, 8, 0x40, 0, 0, // FLD dividend
         0xd9, opcode,
     ];
-    let compiled = Compiler::new(SegmentProfile::Flat32)
+    let compiled = Compiler::new(FLAT32)
         .specialize_on_cpu(&CpuState::default())
         .compile_block(0x1000, &code, 3)
         .unwrap();
@@ -96,7 +97,7 @@ fn native_quotient(opcode: u8) {
 fn restart(opcode: u8) {
     let code = [0xd9, opcode];
     let fop = 0x0100 | u16::from(opcode);
-    let compiled = Compiler::new(SegmentProfile::Flat32)
+    let compiled = Compiler::new(FLAT32)
         .compile_block(0x1000, &code, 1)
         .unwrap();
     let block = TestModule::new(&compiled);
@@ -129,7 +130,7 @@ fn restart(opcode: u8) {
 
     // A failed remainder guard keeps the two earlier pushes exactly once.
     let code = [0xd9, 0xee, 0xd9, 0xe8, 0xd9, opcode]; // FLDZ; FLD1; remainder
-    let compiled = Compiler::new(SegmentProfile::Flat32)
+    let compiled = Compiler::new(FLAT32)
         .compile_block(0x1000, &code, 3)
         .unwrap();
     let mut image = stack_image(&code, 0, 0xffff);
@@ -184,7 +185,7 @@ fn preserves_native_precision(opcode: u8) {
     ];
     let mut cpu = CpuState::default();
     set_control(&mut cpu.x87.control, 0x027f);
-    let compiled = Compiler::new(SegmentProfile::Flat32)
+    let compiled = Compiler::new(FLAT32)
         .specialize_on_cpu(&cpu)
         .compile_block(0x1000, &code, 4)
         .unwrap();

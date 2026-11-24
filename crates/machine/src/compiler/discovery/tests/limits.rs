@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn per_root_budgets_count_new_instructions_and_their_complete_encodings() {
     let limits = DiscoveryLimits::default();
-    let profile = SegmentProfile::Flat32.into();
+    let entry = EntryAssumptions::FLAT32;
     for (code, limits) in [
         (
             &[0x90, 0x90, 0xc3][..],
@@ -34,7 +34,7 @@ fn per_root_budgets_count_new_instructions_and_their_complete_encodings() {
     ] {
         assert!(
             matches!(
-                discover(profile, Bits32, code, limits),
+                discover(entry, Bits32, code, limits),
                 Err(Error::Discovery(DiscoveryError::TooLarge {
                     address: START
                 }))
@@ -44,7 +44,7 @@ fn per_root_budgets_count_new_instructions_and_their_complete_encodings() {
     }
 
     let blocks = discover(
-        profile,
+        entry,
         Bits32,
         &[0x75, 0xfe, 0xc3], // JNZ back to the root; RET
         DiscoveryLimits {
@@ -60,7 +60,7 @@ fn per_root_budgets_count_new_instructions_and_their_complete_encodings() {
 #[test]
 fn zero_limits_are_rejected_before_reading_the_source() {
     let limits = DiscoveryLimits::default();
-    let target = Compiler::new(SegmentProfile::Flat32).config();
+    let config = CompilerConfig::new(EntryAssumptions::FLAT32, MemoryBackend::HostPageTable);
     for limits in [
         DiscoveryLimits {
             instructions: 0,
@@ -72,7 +72,7 @@ fn zero_limits_are_rejected_before_reading_the_source() {
             ..limits
         },
     ] {
-        let mut discovery = BlockDiscovery::new(target, |_, _: &mut [u8]| {
+        let mut discovery = BlockDiscovery::new(config, |_, _: &mut [u8]| {
             panic!("attempted to read code for a zero limit")
         });
         assert!(matches!(
@@ -87,7 +87,7 @@ fn default_limits_accept_a_large_branch_chain() {
     let mut code: Vec<_> = std::iter::repeat_n([0x75, 0], 8192).flatten().collect();
     code.push(0xc3);
     let blocks = discover(
-        SegmentProfile::Flat32.into(),
+        EntryAssumptions::FLAT32,
         Bits32,
         &code,
         DiscoveryLimits::default(),
@@ -108,8 +108,8 @@ fn short_sequential_reads_reuse_bytes_across_an_eip_wrap() {
     code.push(0xc3);
     let mut copied = 0;
     let mut read = mapped_code([(start, code.as_slice())]);
-    let target = Compiler::new(SegmentProfile::Flat32).config();
-    let mut discovery = BlockDiscovery::new(target, |address, output: &mut [u8]| {
+    let config = CompilerConfig::new(EntryAssumptions::FLAT32, MemoryBackend::HostPageTable);
+    let mut discovery = BlockDiscovery::new(config, |address, output: &mut [u8]| {
         let len = output.len().min(7);
         let count = read(address, &mut output[..len]);
         copied += count;

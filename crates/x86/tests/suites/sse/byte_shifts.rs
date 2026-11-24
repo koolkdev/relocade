@@ -1,9 +1,10 @@
 //! Whole-register byte shifts cross lane boundaries and never mask large counts.
 
 use super::*;
+use crate::support::config::FLAT32;
 
 fn shifts(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     let source: [u8; 16] = std::array::from_fn(|byte| 0x80 + byte as u8);
     for left in [false, true] {
         for count in [0, 1, 7, 8, 9, 15, 16, 17, 31, 32, 127, 128, 240, 241, 255] {

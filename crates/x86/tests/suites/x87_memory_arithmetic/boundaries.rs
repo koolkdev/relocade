@@ -1,12 +1,13 @@
 //! Memory faults and JIT handoffs precede the current instruction's effects.
 
 use super::*;
+use crate::support::config::FLAT32;
 use crate::support::machine::step_returns;
 use crate::support::{machine::expected, step::TestModule};
 use relocade_x86::compile_block_from_bytes;
 
 fn fault_ordering(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for source in [
         Source::Single(0x7f80_0001),
         Source::Double(0x7ff0_0000_0000_0001),
@@ -48,7 +49,7 @@ fn fault_ordering(frontend: Frontend) {
 }
 
 fn source_width(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for source in [
         Source::Single(0x3f80_0000),
         Source::Double(0x3ff0_0000_0000_0000),
@@ -151,7 +152,7 @@ fn restart_state() {
 }
 
 fn loaded_denormal_is_an_ordinary_register(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     // FLD consumes the narrow source's #D evidence. After FNCLEX, FMUL uses
     // the normal binary80 value and must not raise #D again.
     let code = [0xd9, 0x05, 0, 0x40, 0, 0, 0xdb, 0xe2, 0xd8, 0xc8];

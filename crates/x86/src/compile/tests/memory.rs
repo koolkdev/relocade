@@ -1,4 +1,5 @@
-use crate::{Compiler, ExecutionProfile, SegmentProfile};
+use crate::support::config::{FLAT32, REAL16, SEGMENTED16, SEGMENTED32};
+use crate::Compiler;
 use wasmparser::{Parser, Payload, TypeRef};
 
 pub(super) fn imports(bytes: &[u8]) -> Vec<(&str, &str)> {
@@ -19,28 +20,23 @@ pub(super) fn imports(bytes: &[u8]) -> Vec<(&str, &str)> {
 
 #[test]
 fn snapshot_imports_cover_explicit_and_implicit_memory_accesses() {
-    for profile in [
-        SegmentProfile::Flat32.into(),
-        SegmentProfile::Segmented32.into(),
-        SegmentProfile::Segmented16.into(),
-        ExecutionProfile::Real16,
-    ] {
-        let compiler = Compiler::new(profile);
+    for config in [FLAT32, SEGMENTED32, SEGMENTED16, REAL16] {
+        let compiler = Compiler::new(config);
         for code in [&[0x40][..], &[0x8d, 0x00][..]] {
             // INC and LEA need CPU state but do not access guest memory.
             let block = compiler.compile_block(0x1000, code, 1).unwrap();
             assert_eq!(
                 imports(&block.bytes),
                 [("relocade", "executionContext")],
-                "{profile:?}, {code:02x?}",
+                "{config:?}, {code:02x?}",
             );
         }
         for code in [&[0x50][..], &[0x8b, 0x00][..]] {
             // PUSH uses memory without a memory operand; MOV has an explicit one.
             let block = compiler.compile_block(0x1000, code, 1).unwrap();
-            let map = match profile {
-                ExecutionProfile::Real16 => "physicalMap",
-                ExecutionProfile::Protected(_) => "machine",
+            let map = match config.memory_backend {
+                crate::MemoryBackend::PhysicalBus => "physicalMap",
+                crate::MemoryBackend::HostPageTable => "machine",
             };
             assert_eq!(
                 imports(&block.bytes),
@@ -49,7 +45,7 @@ fn snapshot_imports_cover_explicit_and_implicit_memory_accesses() {
                     ("relocade", "guest"),
                     ("relocade", map),
                 ],
-                "{profile:?}, {code:02x?}",
+                "{config:?}, {code:02x?}",
             );
         }
     }
@@ -60,7 +56,7 @@ fn all_register_stack_transfers_reuse_one_span_check() {
     use wasmparser::Operator;
 
     for (opcode, loads, stores) in [(0x60, 0, 8), (0x61, 7, 0)] {
-        let block = Compiler::new(SegmentProfile::Flat32)
+        let block = Compiler::new(FLAT32)
             .compile_block(0x1000, &[opcode], 1)
             .unwrap();
         let mut memories = Vec::new();
@@ -111,7 +107,7 @@ fn all_register_stack_transfers_reuse_one_span_check() {
 
 #[test]
 fn physical_jit_operands_do_not_embed_general_transfer_helpers() {
-    let compiler = Compiler::new(ExecutionProfile::Real16);
+    let compiler = Compiler::new(REAL16);
     // Scalar load, read/modify/write, and a repeated copy all retain direct proofs.
     for code in [&[0xa1, 0, 0x20][..], &[0xff, 0x06, 0, 0x20], &[0xf3, 0xa4]] {
         let block = compiler.compile_block(0x1000, code, 1).unwrap();

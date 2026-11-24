@@ -1,7 +1,8 @@
 use super::*;
+use crate::support::config::{FLAT32, SEGMENTED16};
 
 fn shifts(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     // Each half has different signs and low bits; a count never wraps at the lane width.
     for (opcode, immediate, extension, width, input, one, last, oversized) in [
         (
@@ -132,7 +133,7 @@ fn shifts(frontend: Frontend) {
 }
 
 fn count_span(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Segmented16);
+    let mut checks = ImageSequences::new(frontend, SEGMENTED16);
     check_m128_span(&mut checks, &[0x66, 0x0f, 0xf1, 0x36, 0x00, 0x40]);
 }
 

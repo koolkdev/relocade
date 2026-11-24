@@ -1,5 +1,6 @@
 //! F2XM1 retains binary80 precision, range, exception priority and restart state.
 
+use crate::support::config::FLAT32;
 use crate::support::machine::step_returns;
 #[path = "x87_exponential/values.rs"]
 mod values;
@@ -11,7 +12,7 @@ use crate::support::{
     step::TestModule,
     x87::{complete_x87, dispatch, real80, set_control, stack_image, write_value, INDEFINITE},
 };
-use relocade_x86::{Compiler, CpuState, SegmentProfile};
+use relocade_x86::{Compiler, CpuState};
 
 const CODE: [u8; 2] = [0xd9, 0xf0];
 const LEAD: u64 = 1 << 63;
@@ -22,7 +23,7 @@ fn encoding() {
 }
 
 fn values(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for &values::Reference {
         input,
         lower,
@@ -63,7 +64,7 @@ fn values(frontend: Frontend) {
 
 fn infinities(frontend: Frontend) {
     let code = [0xd9, 0xf0, 0x9b];
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (input, output) in [
         ((LEAD, 0xffff), (LEAD, 0xbfff)),
         ((LEAD, 0x7fff), (LEAD, 0x7fff)),
@@ -91,7 +92,7 @@ fn infinities(frontend: Frontend) {
 
 fn exceptions(frontend: Frontend) {
     let code = [0xd9, 0xf0, 0x9b];
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for (input, output, flag) in [
         (None, INDEFINITE, 1_u16),
         (Some((42, 0x3fff)), INDEFINITE, 1),
@@ -166,7 +167,7 @@ fn exceptions(frontend: Frontend) {
 
 #[test]
 fn jit_specialization() {
-    let compiler = Compiler::new(SegmentProfile::Flat32);
+    let compiler = Compiler::new(FLAT32);
     let compiled = compiler.compile_block(0x1000, &CODE, 1).unwrap();
     let module = TestModule::new(&compiled);
     for input in [
@@ -200,7 +201,7 @@ fn jit_specialization() {
     for pc in [0, 2, 3] {
         observed.x87.control.precision_control = pc;
         modules.push(
-            Compiler::new(SegmentProfile::Flat32)
+            Compiler::new(FLAT32)
                 .specialize_on_cpu(&observed)
                 .compile_block(0x1000, &CODE, 1)
                 .unwrap()

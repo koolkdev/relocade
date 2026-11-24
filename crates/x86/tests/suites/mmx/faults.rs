@@ -1,7 +1,8 @@
 use super::*;
+use crate::support::config::FLAT32;
 
 fn faults(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for opcode in [0x6e, 0x6f, 0x7e, 0x7f] {
         let code = [0x0f, opcode, 0x00];
         let mut image = image(&code);

@@ -6,8 +6,9 @@ mod tests;
 
 use super::{
     cases::{
-        ExpectedExit, ExpectedFlags, ExpectedState, FlagExpectation, Flags, InitialFlags,
-        InitialState, MemoryExpectation, MemoryRegion, Permissions, Profiles, RegisterExpectation,
+        Configurations, ExpectedExit, ExpectedFlags, ExpectedState, FlagExpectation, Flags,
+        InitialFlags, InitialState, MemoryExpectation, MemoryRegion, Permissions,
+        RegisterExpectation,
     },
     guest::Mapping,
 };
@@ -21,7 +22,7 @@ pub(crate) struct SequenceCase {
     trailing_code: Vec<u8>,
     trailing_instructions: u32,
     preserve_flags: bool,
-    profiles: Profiles,
+    configurations: Configurations,
 }
 
 impl SequenceCase {
@@ -53,7 +54,7 @@ impl SequenceCase {
             trailing_code: Vec::new(),
             trailing_instructions: 0,
             preserve_flags,
-            profiles: Profiles::All,
+            configurations: Configurations::All,
         }
     }
 
@@ -78,7 +79,7 @@ impl SequenceCase {
         self
     }
     pub(crate) fn segmented_only(mut self) -> Self {
-        self.profiles = Profiles::Segmented;
+        self.configurations = Configurations::Segmented;
         self
     }
     pub(crate) fn segment(mut self, segment: Segment, cache: SegmentRegister) -> Self {

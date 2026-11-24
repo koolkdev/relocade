@@ -8,8 +8,8 @@ use relocade_machine::{
     DispatchEntry, FarPointer, Hook,
 };
 use relocade_x86::{
-    abi, Compiler, CpuState, ExecutionExit, ExecutionExitValues, ExecutionProfile, HostExit,
-    PhysicalMapping, PhysicalMemoryMap, Segment,
+    abi, CpuState, ExecutionExit, ExecutionExitValues, HostExit, PhysicalMapping,
+    PhysicalMemoryMap, Segment,
 };
 use std::{cell::Cell, rc::Rc};
 
@@ -18,7 +18,6 @@ wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
 async fn check_interrupt_hooks() {
     let config = support::configuration(
-        Compiler::new(ExecutionProfile::Real16).config(),
         CpuState {
             eip: 0x100,
             ..CpuState::real_mode()
@@ -148,7 +147,6 @@ async fn interrupt_hooks_return_through_guest_frames_and_allow_chaining() {
 
 async fn check_mapped_hook_access() {
     let config = support::configuration(
-        Compiler::new(ExecutionProfile::Real16).config(),
         CpuState {
             eip: 0x100,
             ..CpuState::real_mode()
@@ -248,7 +246,6 @@ async fn hooks_edit_published_cpu_and_mapped_memory_during_runs() {
 
 async fn check_hook_replacement() {
     let config = support::configuration(
-        Compiler::new(ExecutionProfile::Real16).config(),
         CpuState {
             eip: 0x400,
             ..CpuState::real_mode()

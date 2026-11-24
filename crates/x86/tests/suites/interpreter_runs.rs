@@ -3,11 +3,12 @@
 #[path = "interpreter_runs/fetch.rs"]
 mod fetch;
 
+use crate::support::config::{FLAT32, SEGMENTED16, SEGMENTED32};
 use crate::support::{
     machine::{expected, Exit, Image, Step},
     step::{Event, SegmentResolution, TestModule},
 };
-use relocade_x86::{Segment, SegmentProfile, SegmentRegister};
+use relocade_x86::{Segment, SegmentRegister};
 
 fn check(module: &TestModule, name: &str, image: &Image, step: Step<'_>) {
     assert_eq!(
@@ -246,7 +247,7 @@ fn terminal_segment_load(module: &TestModule) {
 }
 
 fn segmented_execution() {
-    let module = TestModule::interpreter_run_with_profile(SegmentProfile::Segmented16);
+    let module = TestModule::interpreter_run_with_config(SEGMENTED16);
     let mut image = Image::new(&[
         0x66, 0xb8, 0x78, 0x56, 0x34, 0x12, 0xb8, 0xcd, 0xab, 0x67, 0x8b, 0x03, 0x8b, 0x07, 0xeb, 0,
     ]);
@@ -271,7 +272,7 @@ fn segmented_execution() {
         },
     );
 
-    let module = TestModule::interpreter_run_with_profile(SegmentProfile::Segmented32);
+    let module = TestModule::interpreter_run_with_config(SEGMENTED32);
     let mut image = Image::new(&[0xb8, 42, 0, 0, 0, 0x90]);
     fetch::segmented_code_pages(module);
     fetch::segment_end(module);
@@ -294,7 +295,7 @@ fn segmented_execution() {
 
 #[test]
 fn instructions_continue_to_execution_boundaries() {
-    let module = TestModule::interpreter_run_with_profile(SegmentProfile::Flat32);
+    let module = TestModule::interpreter_run_with_config(FLAT32);
     execution_boundaries(module);
     fetch::check_fetch(module);
     repetition_progress(module);

@@ -1,5 +1,6 @@
 use super::*;
-use crate::SegmentProfile;
+use crate::support::config::{FLAT32, SEGMENTED32};
+
 use relocade_x86::SegmentRegister;
 
 #[test]
@@ -32,7 +33,7 @@ fn indirect_calls_read_entry_esp_and_source_bytes_before_pushing_through_ss() {
             cpu.instruction_count = 0;
             let saved = pointer(word, 0x1000 + code.len() as u32, 0x1b);
             check_one(
-                ExecutionProfile::Protected(SegmentProfile::Segmented32),
+                SEGMENTED32,
                 &code,
                 &image,
                 &[SegmentResolution::new(&tables(0xffff), Segment::Cs, 0x27)],
@@ -91,7 +92,7 @@ fn the_whole_indirect_pointer_faults_before_resolution_or_return_frame_access() 
                 image.map(4, 0x8000, false);
             }
             check_one(
-                ExecutionProfile::Protected(SegmentProfile::Segmented32),
+                SEGMENTED32,
                 &code,
                 &image,
                 &[],
@@ -118,7 +119,7 @@ fn return_ignores_address_and_segment_overrides_for_its_stack() {
     cpu.registers.esp = 0x9008;
     cpu.instruction_count = 0;
     check_one(
-        ExecutionProfile::Protected(SegmentProfile::Flat32),
+        FLAT32,
         &code,
         &image,
         &[SegmentResolution::new(&tables(0xffff), Segment::Cs, 0x27)],

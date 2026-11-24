@@ -52,7 +52,7 @@ fn field_module() -> TestModule {
     let bytes = program.compile().unwrap();
     Validator::new().validate_all(&bytes).unwrap();
     TestModule::new(&crate::CompiledModule {
-        execution_target: None,
+        config: None,
         bytes,
         entry: "fields".into(),
     })
@@ -179,7 +179,7 @@ fn wide_field_modules() -> [TestModule; 2] {
     Validator::new().validate_all(&bytes).unwrap();
     ["read_fields", "write_fields"].map(|entry| {
         TestModule::new(&crate::CompiledModule {
-            execution_target: None,
+            config: None,
             bytes: bytes.clone(),
             entry: entry.into(),
         })

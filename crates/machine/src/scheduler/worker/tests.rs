@@ -1,7 +1,7 @@
 use super::*;
 use crate::{ClockSource, CpuConfig, Machine, MachineConfig, SessionConfig, Sleep, Timestamp};
 use futures_channel::oneshot;
-use relocade_x86::{Compiler, CpuState, ExecutionProfile, PhysicalMemoryMap};
+use relocade_x86::{CpuState, PhysicalMemoryMap};
 
 #[path = "../../../../workers/tests/support/gate.rs"]
 mod gate;
@@ -11,14 +11,7 @@ fn cpu() -> (Machine, CpuHandle) {
     let mut machine =
         Machine::new(MachineConfig::new(0, PhysicalMemoryMap::new([]).unwrap()).unwrap()).unwrap();
     let cpu = machine
-        .create_cpu(
-            CpuConfig::new(
-                Compiler::new(ExecutionProfile::Real16).config(),
-                CpuState::real_mode(),
-            )
-            .unwrap(),
-            None,
-        )
+        .create_cpu(CpuConfig::pc(CpuState::real_mode()).unwrap(), None)
         .unwrap();
     (machine, cpu)
 }

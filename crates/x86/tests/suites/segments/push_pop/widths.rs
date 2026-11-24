@@ -1,36 +1,16 @@
 use super::*;
-use crate::SegmentProfile;
+use crate::support::config::{FLAT32, SEGMENTED16, SEGMENTED32};
 
 #[test]
 fn every_segment_form_separates_selector_width_operand_size_and_stack_width() {
     // Every fixed form appears once; shared stack tests own the full size matrix.
     for (push, forms) in [(true, &PUSH[..]), (false, &POP[..])] {
         for (index, &(segment, opcode)) in forms.iter().enumerate() {
-            let (profile, big, override_size, slot) = [
-                (
-                    ExecutionProfile::Protected(SegmentProfile::Segmented32),
-                    true,
-                    false,
-                    4,
-                ),
-                (
-                    ExecutionProfile::Protected(SegmentProfile::Segmented32),
-                    false,
-                    true,
-                    2,
-                ),
-                (
-                    ExecutionProfile::Protected(SegmentProfile::Segmented16),
-                    true,
-                    false,
-                    2,
-                ),
-                (
-                    ExecutionProfile::Protected(SegmentProfile::Segmented16),
-                    false,
-                    true,
-                    4,
-                ),
+            let (config, big, override_size, slot) = [
+                (SEGMENTED32, true, false, 4),
+                (SEGMENTED32, false, true, 2),
+                (SEGMENTED16, true, false, 2),
+                (SEGMENTED16, false, true, 4),
             ][index % 4];
             let mut code = vec![];
             if override_size {
@@ -39,7 +19,7 @@ fn every_segment_form_separates_selector_width_operand_size_and_stack_width() {
             }
             code.extend(opcode);
             let mut image = Image::new(&code);
-            code_defaults(&mut image, profile);
+            code_defaults(&mut image, config);
             image.cpu.segments.ss = data(0x4000, 0xffff);
             image.cpu.segments.ss.big = u8::from(big);
             image.cpu.segments.fs = SegmentRegister::unusable(0xf327);
@@ -57,7 +37,7 @@ fn every_segment_form_separates_selector_width_operand_size_and_stack_width() {
             if push {
                 cpu.registers.esp -= slot;
                 check_one(
-                    profile,
+                    config,
                     &code,
                     &image,
                     &[],
@@ -85,7 +65,7 @@ fn every_segment_form_separates_selector_width_operand_size_and_stack_width() {
                     ..SegmentRegister::flat_data32(0)
                 };
                 check_one(
-                    profile,
+                    config,
                     &code,
                     &image,
                     &[SegmentResolution::new(&tables, segment, 0xf327)],
@@ -102,20 +82,16 @@ fn every_segment_form_separates_selector_width_operand_size_and_stack_width() {
 
 #[test]
 fn a_dword_slot_does_not_access_its_third_or_fourth_byte() {
-    for profile in [
-        ExecutionProfile::Protected(SegmentProfile::Flat32),
-        ExecutionProfile::Protected(SegmentProfile::Segmented32),
-        ExecutionProfile::Protected(SegmentProfile::Segmented16),
-    ] {
+    for config in [FLAT32, SEGMENTED32, SEGMENTED16] {
         for push in [false, true] {
             let mut code = vec![];
-            if profile == ExecutionProfile::Protected(SegmentProfile::Segmented16) {
+            if config.entry == SEGMENTED16.entry {
                 code.push(0x66);
             }
             code.push(if push { 0x1e } else { 0x1f }); // PUSH/POP DS, dword slot.
             let mut image = Image::new(&code);
-            code_defaults(&mut image, profile);
-            let flat = profile == ExecutionProfile::Protected(SegmentProfile::Flat32);
+            code_defaults(&mut image, config);
+            let flat = config.entry == FLAT32.entry;
             if !flat {
                 image.cpu.segments.ss = data(0x4000, 0xfff);
             }
@@ -143,7 +119,7 @@ fn a_dword_slot_does_not_access_its_third_or_fourth_byte() {
                 vec![SegmentResolution::new(&tables, Segment::Ds, 0xf327)]
             };
             check_one(
-                profile,
+                config,
                 &code,
                 &image,
                 &resolutions,
@@ -191,7 +167,7 @@ fn selector_words_can_cross_discontiguous_physical_pages() {
             vec![SegmentResolution::new(&tables, Segment::Gs, 0xf327)]
         };
         check_one(
-            ExecutionProfile::Protected(SegmentProfile::Flat32),
+            FLAT32,
             &code,
             &image,
             &resolutions,

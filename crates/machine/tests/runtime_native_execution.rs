@@ -5,8 +5,8 @@ use support::Configuration;
 use relocade_machine::Cpu;
 use relocade_machine::MemoryError;
 use relocade_x86::{
-    Compiler, CpuFeature, CpuModel, CpuState, Exception, ExecutionExit, ExecutionProfile,
-    PhysicalMapping, PhysicalMemoryMap, Segment,
+    CpuFeature, CpuModel, CpuState, Exception, ExecutionExit, PhysicalMapping, PhysicalMemoryMap,
+    Segment,
 };
 
 fn create(config: Configuration) -> Cpu {
@@ -15,7 +15,6 @@ fn create(config: Configuration) -> Cpu {
 
 fn configuration() -> Configuration {
     support::configuration(
-        Compiler::new(ExecutionProfile::Real16).config(),
         CpuState {
             eip: 0x100,
             ..CpuState::real_mode()
@@ -54,7 +53,7 @@ fn steps_publish_each_instruction_and_retirement_wraps() {
     let mut config = configuration();
     let mut initial = *config.cpu.cpu();
     initial.instruction_count = u64::MAX - 1;
-    config.cpu = relocade_machine::CpuConfig::new(config.cpu.compiler_config(), initial).unwrap();
+    config.cpu = relocade_machine::CpuConfig::pc(initial).unwrap();
     let mut wrapping = create(config);
     wrapping
         .memory()
@@ -164,13 +163,7 @@ fn guest_access_uses_the_map_and_open_bus() {
     ])
     .unwrap();
     let initial = configuration();
-    let config = support::configuration(
-        initial.cpu.compiler_config(),
-        *initial.cpu.cpu(),
-        0x3000,
-        map,
-    )
-    .unwrap();
+    let config = support::configuration(*initial.cpu.cpu(), 0x3000, map).unwrap();
     let mut runtime = create(config);
     // MOV AX,[8000]; INC AX; MOV [8000],AX; IN AL,80; MOV BX,[9000]; JMP next
     runtime

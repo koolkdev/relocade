@@ -1,8 +1,8 @@
 use super::{cpu, support, Irq};
 use relocade_machine::{real_mode_interrupt::Interrupts, Cpu, FarPointer, IoBus, Memory};
 use relocade_x86::{
-    Compiler, CpuState, Exception, ExecutionExit, ExecutionProfile, PhysicalMapping,
-    PhysicalMemoryMap, Segment, SegmentRegister,
+    CpuState, Exception, ExecutionExit, PhysicalMapping, PhysicalMemoryMap, Segment,
+    SegmentRegister,
 };
 use std::{
     cell::RefCell,
@@ -190,7 +190,6 @@ async fn mapped_arguments() {
     // A nonzero SS places the arguments across two guest pages whose backing
     // order is reversed. Direct backing writes or ignoring SS cannot pass.
     let config = support::configuration(
-        Compiler::new(ExecutionProfile::Real16).config(),
         state,
         0x3000,
         PhysicalMemoryMap::new([

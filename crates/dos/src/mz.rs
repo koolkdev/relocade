@@ -122,7 +122,7 @@ pub(crate) fn load(
     machine
         .cpu
         .restore(&cpu)
-        .expect("MZ entry state satisfies the real-mode execution target");
+        .expect("MZ entry state satisfies the real-mode entry assumptions");
     Ok(psp_segment)
 }
 

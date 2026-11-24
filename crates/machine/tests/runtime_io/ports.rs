@@ -1,5 +1,6 @@
 //! Host input normalization and generated guest port I/O share one router.
 use super::*;
+use relocade_x86::Compiler;
 
 fn port_bus(device: &Rc<RefCell<RecordingDevice>>) -> IoBus {
     IoBus::new(device.clone(), |io| {
@@ -52,9 +53,8 @@ async fn guest_carriers() {
     {
         let device = RecordingDevice::new(0);
         device.borrow_mut().port = 0x7654_3210;
-        let compiler = Compiler::new(ExecutionProfile::Real16);
+        let compiler = Compiler::new(support::pc_compiler_config());
         let config = support::configuration(
-            compiler.config(),
             CpuState {
                 eip: 0x100,
                 ..CpuState::real_mode()

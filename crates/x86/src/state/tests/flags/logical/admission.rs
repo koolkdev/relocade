@@ -81,7 +81,7 @@ fn rejected_mixed_changes_leave_status_and_direction_history_intact() {
     });
     program.export("run", function).unwrap();
     let module = TestModule::new(&CompiledModule {
-        execution_target: None,
+        config: None,
         bytes: program.compile().unwrap(),
         entry: "run".into(),
     });

@@ -1,13 +1,13 @@
 //! Both trigonometric components share operand exceptions, but round independently.
 
 use super::x87_trigonometric::values;
+use crate::support::config::FLAT32;
 
 use crate::support::{
     encoding::check_length,
     execution::{test_frontends, Frontend, ImageSequences},
     x87::{complete_x87, dispatch, set_control, stack_image, write_value},
 };
-use relocade_x86::SegmentProfile;
 
 const CODE: [u8; 2] = [0xd9, 0xfb];
 
@@ -17,7 +17,7 @@ fn encoding() {
 }
 
 fn values(frontend: Frontend) {
-    let mut checks = ImageSequences::new(frontend, SegmentProfile::Flat32);
+    let mut checks = ImageSequences::new(frontend, FLAT32);
     for reference in values::VALUES {
         for negative in [false, true] {
             for rc in 0..4 {
