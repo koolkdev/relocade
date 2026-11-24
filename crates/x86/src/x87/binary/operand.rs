@@ -1,9 +1,9 @@
 //! Narrow sources retain their original exception evidence until consumption.
 
-use relocade_compiler::{Val, F64, I1, I64};
+use relocade_compiler::{Val, I1, I64};
 
 use crate::floating::{BinaryClassification, BinaryFormat};
-use crate::x87::{ExtendedBits, ExtendedValue};
+use crate::x87::{value::BinaryValue, ExtendedBits, ExtendedValue};
 
 pub(crate) struct BinaryOperand {
     format: BinaryFormat,
@@ -25,8 +25,8 @@ impl BinaryFormat {
 }
 
 impl BinaryOperand {
-    pub(in crate::x87) fn binary64_value(&self) -> Val<F64> {
-        self.format.binary64_value(&self.bits)
+    pub(in crate::x87) fn binary_value(&self) -> BinaryValue {
+        BinaryValue::from_bits(self.format, &self.bits)
     }
 
     /// FLD quiets an SNaN after retaining its exception evidence. Keeping the
