@@ -4,10 +4,9 @@ use crate::{
     state::{access, ExecutionContext, StatePattern},
     EntryAssumptions, SegmentAssumptions, SegmentRegister, Segments,
 };
-pub use relocade_x86_profile::SegmentProfile;
 use std::mem::offset_of;
 
-pub(crate) fn assumptions(entry: EntryAssumptions, segment: Segment) -> Vec<StatePattern> {
+pub(crate) fn field_patterns(entry: EntryAssumptions, segment: Segment) -> Vec<StatePattern> {
     let base = offset_of!(ExecutionContext, cpu) + Segments::offset(segment);
     let mut requirements = Vec::new();
     macro_rules! field {

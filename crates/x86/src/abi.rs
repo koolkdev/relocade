@@ -50,19 +50,19 @@ pub const EXECUTION_FUNCTIONS: Table<ExecutionSignature> =
     Table::new("relocade", "executionFunctions", 2);
 
 pub const DISPATCH: Function<ExecutionSignature> = Function::new("relocade", "dispatch");
-/// Resolves a completed call once. Only Real16 records unresolved callees, using
+/// Resolves a completed call once. Only real-mode calls record unresolved callees, using
 /// packed 16:16 CS:IP keys; protected-mode calls resolve without profiling.
-/// Published CPU state must remain compatible with the dispatcher's profile.
+/// Published CPU state must satisfy the destination's entry assumptions.
 /// Check execution controls before resolving; stopped calls are not profiled.
 /// Returns the callable slot and whether recording can continue without draining.
 pub const RESOLVE_CALL: Function<ResolveCallSignature> = Function::new("relocade", "resolveCall");
 pub const INTERPRET: Function<ExecutionSignature> = Function::new("relocade", "interpret");
 pub const RUN: Function<ExecutionSignature> = Function::new("relocade", "run");
 pub const STEP: Function<ExecutionSignature> = Function::new("relocade", "step");
-/// Real16 architectural entry; success returns InterruptEntered before ISR dispatch.
+/// Real-mode interrupt entry; success returns InterruptEntered before ISR dispatch.
 /// The embedding owns maskable-interrupt eligibility and acknowledgement.
 pub const INTERRUPT: Function<InterruptSignature> = Function::new("relocade", "interrupt");
-/// Real16 far-call entry; success returns FarCallEntered before guest dispatch.
+/// Real-mode far-call entry; success returns FarCallEntered before guest dispatch.
 /// Reserves stack_bytes above the saved CS:IP, checking the complete frame.
 /// The host fills the reserved bytes before dispatch; flags remain unchanged.
 pub const FAR_CALL: Function<FarCallSignature> = Function::new("relocade", "farCall");

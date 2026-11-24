@@ -64,24 +64,20 @@ CPU/device runner, execution ownership and input delivery for an interactive emb
 
 ## Build and test
 
-Cargo generates four interpreter modules on the build host, one for each execution
-profile. Function placement and emission share a worker pool bounded by available
-Cargo jobserver slots and host parallelism; construction remains serial. Each
-module exports `step` and `run`. `relocade-interpreter::module(profile)`
-returns their embedded Wasm bytes, and `Cpu::new` uses them in both native and
-web builds. Starting a guest does not regenerate the interpreter. The backend
-still compiles the portable Wasm to native code when loading it. The asset crate's
-only runtime dependency is `relocade-x86-profile`, which owns the shared profile
-types; code generation and compiler workers are build dependencies.
+Cargo generates the live physical-bus PC interpreter and three protected
+interpreters for the host page table. Each Wasm module exports `step` and
+`run`. PC startup loads `relocade_interpreter::pc()`. Other embeddings can
+look up the bytes for a packaged combination with
+`relocade_interpreter::module(entry, backend)`. Only the shared entry and
+memory types in `relocade-x86-config` are runtime dependencies of the asset crate.
 
-`relocade_x86::build_interpreter(profile)` constructs a `Program` containing both
-entry exports. The caller compiles that program once and selects an export when
-invoking it. Applications can pass their own executor to `Program::compile_with`.
-With the `relocade-compiler/workers` feature, an existing set of workers can be used
-as follows:
+`relocade_x86::build_interpreter(entry, backend)` builds a program with both
+exports. The build uses a worker pool bounded by Cargo's jobserver slots and
+host parallelism. Applications can also compile the program with their own
+workers.
 
 ```rust
-let program = relocade_x86::build_interpreter(profile)?;
+let program = relocade_x86::build_interpreter(entry, backend)?;
 let (pool, executor) = relocade_workers::Pool::new(threads)?;
 let ((), bytes) = futures_util::future::join(pool.run(), async move {
     program.compile_with(&executor).await

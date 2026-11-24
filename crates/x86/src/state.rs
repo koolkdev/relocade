@@ -33,9 +33,9 @@ use access::{cpu_load, cpu_store, register_location};
 use relocade_compiler::{BlockBuilder, BuildError, Val, I1, I32, I64, I8};
 
 use crate::{
+    entry::EntryGuarantees,
     exception::ExceptionValues,
     flags::{Condition, Flag, FlagChange},
-    profile::EntryGuarantees,
     register::{Register, RegisterType},
     segment::{SegmentAccess, SegmentCacheValues, SegmentSelection},
     ssa::StateFields,

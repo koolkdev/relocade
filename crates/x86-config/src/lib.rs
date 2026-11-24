@@ -42,7 +42,9 @@ impl PrivilegeLevel {
 }
 
 /// Facts the owner guarantees on every entry to generated code. An omitted fact
-/// is read from the executing CPU unless another guarantee implies it.
+/// is read from the executing CPU unless another guarantee implies it. The
+/// owner maintains these facts across dispatch, direct links and interpreter
+/// handoffs. A guest change to a guaranteed field can invalidate old entries.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct EntryAssumptions {
     pub mode: Option<ExecutionMode>,
@@ -108,23 +110,6 @@ impl EntryAssumptions {
     }
 }
 
-/// Execution assumptions under which a compiled entry may execute.
-/// Compatibility does not validate instruction-fetch spans, code bytes or mappings and
-/// does not perform cache invalidation. The execution owner must invalidate
-/// dependent entries and dispatch links when these assumptions cease to hold.
-/// The runtime owns compatibility across segment changes, including any profile
-/// transition. Dispatch and interpreter entry rely on the runtime maintaining it.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum ExecutionProfile {
-    /// Protected mode at CPL3 under the selected segment assumptions, with
-    /// timestamp reads enabled (CR4.TSD=0).
-    Protected(SegmentProfile),
-    /// Ordinary real mode: 16-bit defaults, selector-shifted bases, 64 KiB limits
-    /// and host-controlled A20. The host establishes canonical caches with
-    /// `relocade_x86::CpuState::real_mode`; retained protected-mode caches are not admitted.
-    Real16,
-}
-
 /// How generated x86 code resolves a linear address after checking the segment.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum MemoryBackend {
@@ -133,63 +118,4 @@ pub enum MemoryBackend {
     PhysicalBus,
     /// The host's linear page table maps guest addresses to backing pages and permissions.
     HostPageTable,
-}
-
-impl MemoryBackend {
-    /// The backend used by the packaged interpreter for this execution profile.
-    pub const fn default_for(profile: ExecutionProfile) -> Self {
-        match profile {
-            ExecutionProfile::Real16 => Self::PhysicalBus,
-            ExecutionProfile::Protected(_) => Self::HostPageTable,
-        }
-    }
-}
-
-/// Protected-mode segment assumptions fixed when an entry is compiled.
-/// Used by [`crate::ExecutionProfile::Protected`]; 16-bit code defaults do not
-/// select real mode. Entry validity and invalidation follow [`crate::ExecutionProfile`].
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum SegmentProfile {
-    /// Flat readable code CS, writable expand-up DS/ES/SS, 32-bit CS defaults and
-    /// a 32-bit stack pointer. FS and GS have no assumptions in this profile;
-    /// accesses through them use runtime segment handling.
-    Flat32,
-    /// 32-bit instruction defaults. Segment access and SS.B are runtime inputs.
-    Segmented32,
-    /// 16-bit instruction defaults. Segment access and SS.B are runtime inputs.
-    Segmented16,
-}
-
-impl From<SegmentProfile> for ExecutionProfile {
-    fn from(profile: SegmentProfile) -> Self {
-        Self::Protected(profile)
-    }
-}
-
-impl From<SegmentProfile> for EntryAssumptions {
-    fn from(profile: SegmentProfile) -> Self {
-        match profile {
-            SegmentProfile::Flat32 => Self::FLAT32,
-            SegmentProfile::Segmented32 => Self::SEGMENTED32,
-            SegmentProfile::Segmented16 => Self::SEGMENTED16,
-        }
-    }
-}
-
-impl From<ExecutionProfile> for EntryAssumptions {
-    fn from(profile: ExecutionProfile) -> Self {
-        match profile {
-            ExecutionProfile::Real16 => Self::REAL_MODE,
-            ExecutionProfile::Protected(segments) => segments.into(),
-        }
-    }
-}
-
-impl SegmentDefaultSize {
-    /// The instruction width guaranteed by each fixed execution profile.
-    pub fn for_profile(profile: ExecutionProfile) -> Self {
-        EntryAssumptions::from(profile)
-            .code_default_size
-            .expect("all fixed profiles guarantee an instruction width")
-    }
 }

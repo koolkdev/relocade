@@ -3,8 +3,8 @@
 use super::{calls::CallLinks, ExecutionBuilder};
 use crate::{
     abi,
+    entry::EntryGuarantees,
     memory::Memory,
-    profile::EntryGuarantees,
     runtime::Runtime,
     state::{Cpu, State},
     CompilerConfig, CpuModel, ExecutionMode,

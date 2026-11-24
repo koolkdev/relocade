@@ -10,7 +10,7 @@ pub enum CpuFeature {
     Cx8,
     /// Conditional moves: CMOVcc, plus FCMOV and FCOMI when FPU is enabled.
     Cmov,
-    /// Timestamp reads: RDTSC. Execution profiles separately govern permission.
+    /// Timestamp reads: RDTSC. Mode and CR4.TSD govern permission.
     Tsc,
     /// x87 floating-point instructions; FCMOV/FCOMI also require CMOV.
     Fpu,

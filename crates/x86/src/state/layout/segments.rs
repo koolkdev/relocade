@@ -47,8 +47,7 @@ impl SegmentRegister {
 
     /// Checks the entry facts for one proposed cache, including CS.RPL for
     /// protected ring-3 code and selector-shifted bases for canonical real-mode caches.
-    pub fn is_compatible_with(&self, entry: impl Into<EntryAssumptions>, segment: Segment) -> bool {
-        let entry = entry.into();
+    pub fn is_compatible_with(&self, entry: EntryAssumptions, segment: Segment) -> bool {
         if segment == Segment::Cs
             && entry.mode == Some(ExecutionMode::ProtectedUser)
             && CpuMode::Protected.privilege_level(self.selector) != PrivilegeLevel::Ring3
@@ -62,7 +61,7 @@ impl SegmentRegister {
         }
         let bytes = self.to_bytes();
         let offset = offset_of!(crate::state::ExecutionContext, cpu) + Segments::offset(segment);
-        crate::segment::profile::assumptions(entry, segment)
+        crate::segment::assumptions::field_patterns(entry, segment)
             .into_iter()
             .all(|field| field.matches_record(&bytes, offset))
     }
@@ -152,8 +151,7 @@ impl Segments {
     }
 
     /// Checks the required properties of all loaded caches. The CPU supplies its mode separately.
-    pub fn is_compatible_with(&self, entry: impl Into<EntryAssumptions>) -> bool {
-        let entry = entry.into();
+    pub fn is_compatible_with(&self, entry: EntryAssumptions) -> bool {
         Segment::ALL
             .into_iter()
             .all(|segment| self[segment].is_compatible_with(entry, segment))

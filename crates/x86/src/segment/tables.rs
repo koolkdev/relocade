@@ -105,7 +105,7 @@ impl DescriptorTables {
     /// The caller must validate any remaining instruction effects, including a
     /// control-transfer target, before committing the returned cache. A failed
     /// load leaves the old segment and other instruction state intact. Successful
-    /// loads can invalidate the current compilation profile or snapshot context;
+    /// loads can invalidate entry assumptions or captured instruction bytes;
     /// execution must leave that context before using broken assumptions.
     ///
     /// This is protected-mode user-level resolution regardless of CS.D. Real-mode

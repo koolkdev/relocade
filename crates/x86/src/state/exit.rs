@@ -17,7 +17,7 @@ pub enum ExecutionExit {
     /// A host entry or handler requested control outside guest execution.
     Host(HostExit),
     /// An undelivered fault with CPU state at its restart boundary.
-    /// Real16 instruction entries deliver supported faults through the IVT;
+    /// Real-mode instruction entries deliver supported faults through the IVT;
     /// other faults and failures during entry itself return this result.
     Exception(Exception),
     /// An encoding or execution path outside the implemented instruction subset.

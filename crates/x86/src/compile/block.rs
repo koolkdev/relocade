@@ -9,8 +9,7 @@ pub use error::BlockCompileError;
 
 use super::{CodeAddress, Compiler};
 use crate::{
-    BlockError, CompiledModule, CompilerConfig, ExecutionProfile, SegmentDefaultSize,
-    SegmentProfile,
+    BlockError, CompiledModule, CompilerConfig, EntryAssumptions, MemoryBackend, SegmentDefaultSize,
 };
 use module::BlockModule;
 use relocade_compiler::CompileExecutor;
@@ -49,7 +48,7 @@ pub struct CompiledBlocks {
     /// Guest address and byte length of every block, including private jump targets.
     /// Their bytes and instruction-fetch mappings must remain valid while the module can run.
     pub spans: Vec<(CodeAddress, usize)>,
-    /// Unique packed Real16 CS:IP targets, in call-table slot order.
+    /// Unique packed real-mode CS:IP targets, in call-table slot order.
     /// Calls to the same target share a slot throughout the module.
     /// Unresolved slots initially call `relocade.resolveAndJump`.
     pub call_targets: Vec<u32>,
@@ -57,7 +56,7 @@ pub struct CompiledBlocks {
     pub config: CompilerConfig,
 }
 
-/// Compiles a byte snapshot under [`SegmentProfile::Flat32`].
+/// Compiles a byte snapshot under [`EntryAssumptions::FLAT32`] using the host page table.
 ///
 /// Compilation stops at the first branch, segment load, POPF/POPFD, port I/O,
 /// serializing instruction, unconditional fault or `instruction_limit`. A conditional
@@ -66,13 +65,13 @@ pub struct CompiledBlocks {
 /// unsupported or overlong instructions within that boundary return [`BlockError`].
 ///
 /// The generated `block_<hex start_eip>() -> ExecutionExit` entry executes the block and
-/// tail-calls host dispatch on success. Supported Real16 faults enter their IVT
+/// tail-calls host dispatch on success. Supported real-mode faults enter their IVT
 /// handler and return `InterruptEntered`; other faults return directly.
 /// A failed guard publishes completed work and tail-calls
 /// `relocade.interpret` at the current instruction. The interpreter handoff abandons
 /// the captured suffix; its execution boundary belongs to the host's policy.
-/// The host must satisfy the profile and snapshot-validity requirements documented
-/// by [`compile_block_from_bytes_with_profile`].
+/// The host must satisfy the entry assumptions and snapshot-validity requirements documented
+/// by [`compile_block_from_bytes_with_config`].
 ///
 /// ```
 /// use relocade_x86::compile_block_from_bytes;
@@ -85,46 +84,43 @@ pub fn compile_block_from_bytes(
     bytes: &[u8],
     instruction_limit: u32,
 ) -> Result<CompiledModule, BlockError> {
-    compile_block_from_bytes_with_profile(
+    compile_block_from_bytes_with_config(
         start_eip,
         bytes,
         instruction_limit,
-        SegmentProfile::Flat32,
+        CompilerConfig::new(EntryAssumptions::FLAT32, MemoryBackend::HostPageTable),
     )
 }
 
-/// Compiles a byte snapshot under the selected execution profile.
+/// Compiles a byte snapshot using the supplied compiler configuration.
 /// The stopping boundary and exported entry follow [`compile_block_from_bytes`].
-/// The profile determines instruction defaults; size prefixes independently
-/// select the opposite operand or address width.
+/// The entry facts must establish CS.D. When it is live, use [`Compiler::compile_blocks`]
+/// with the width captured in the snapshot, or [`Compiler::specialize_on_cpu`] before compiling.
 ///
 /// The block checks its complete compiled fetch span against CS at entry. A failed
 /// check enters the interpreter before executing any instruction, so valid prefixes
-/// and faults retain their architectural order. Profile-proven checks fold away.
-/// The host must establish profile compatibility and ensure the snapshot matches
+/// and faults retain their architectural order. Checks established by entry facts fold away.
+/// The host must establish the entry assumptions and ensure the snapshot matches
 /// readable guest memory at the current CS base. Changes to code bytes or mappings
 /// still require revalidation or invalidation of affected entries and direct links.
 /// See the [host integration contract](crate#entry-validity) for validity throughout
 /// execution.
 ///
 /// ```
-/// use relocade_x86::{compile_block_from_bytes_with_profile, Compiler, SegmentProfile};
-///
+/// use relocade_x86::{compile_block_from_bytes_with_config, CompilerConfig, EntryAssumptions, MemoryBackend};
+/// let config = CompilerConfig::new(EntryAssumptions::SEGMENTED16, MemoryBackend::HostPageTable);
 /// // MOV AX, 0x1234 under 16-bit code defaults.
-/// let block = compile_block_from_bytes_with_profile(
-///     0x1000, &[0xb8, 0x34, 0x12], 1, SegmentProfile::Segmented16,
-/// )?;
-/// assert_eq!(block.config, Some(Compiler::new(SegmentProfile::Segmented16).config()));
+/// let block = compile_block_from_bytes_with_config(0x1000, &[0xb8, 0x34, 0x12], 1, config)?;
+/// assert_eq!(block.config, Some(config));
 /// # Ok::<(), relocade_x86::BlockError>(())
 /// ```
-pub fn compile_block_from_bytes_with_profile(
+pub fn compile_block_from_bytes_with_config(
     start_eip: u32,
     bytes: &[u8],
     instruction_limit: u32,
-    profile: impl Into<ExecutionProfile>,
+    config: CompilerConfig,
 ) -> Result<CompiledModule, BlockError> {
-    let profile = profile.into();
-    Compiler::new(profile).compile_block(start_eip, bytes, instruction_limit)
+    Compiler::new(config).compile_block(start_eip, bytes, instruction_limit)
 }
 
 impl Compiler {
@@ -140,11 +136,11 @@ impl Compiler {
     /// Lowers caller-supplied blocks without reading guest memory or discovering successors.
     ///
     /// Known jumps and fallthroughs link to supplied blocks in the same code segment
-    /// and decode width, including private blocks. Calls use replaceable Real16 slots
+    /// and decode width, including private blocks. Calls use replaceable real-mode slots
     /// or the runtime resolver. Returns dispatch to the live guest destination.
     /// Every edge retains its execution checkpoint and destination entry guards.
     ///
-    /// Each block must end at or before the first execution boundary for this target.
+    /// Each block must end at or before the first execution boundary for the supplied configuration.
     /// A code segment and decode width may contain only one block per start address.
     /// Exports require unique guest addresses across all widths. The caller chooses
     /// the public entries and maintains code and mapping validity for all source spans
@@ -169,8 +165,8 @@ impl Compiler {
     }
 
     /// Compiles a snapshot through the boundary described by
-    /// [`compile_block_from_bytes`], with this compiler's execution target and
-    /// observations. Fetch admission follows [`compile_block_from_bytes_with_profile`].
+    /// [`compile_block_from_bytes`], with this compiler's configuration and
+    /// observations. Fetch admission follows [`compile_block_from_bytes_with_config`].
     /// Decoding uses the guaranteed CS.D or the width captured by [`Self::specialize_on_cpu`].
     /// Use [`Self::compile_blocks`] for snapshots that record their own CS.D.
     pub fn compile_block(
@@ -210,7 +206,7 @@ impl Compiler {
     }
 
     /// Compiles independently callable snapshot blocks into one module.
-    /// Entries share the compiler's target, observations, imports and helpers.
+    /// Entries share the compiler's configuration, observations, imports and helpers.
     /// An empty slice produces a module without exports. Repeated guest addresses
     /// return [`BlockError::DuplicateBlock`].
     ///
@@ -230,8 +226,9 @@ impl Compiler {
     /// from this batch.
     ///
     /// ```
-    /// use relocade_x86::{BlockSnapshot, CodeAddress, Compiler, SegmentDefaultSize, SegmentProfile};
-    /// let compiler = Compiler::new(SegmentProfile::Flat32);
+    /// use relocade_x86::{BlockSnapshot, CodeAddress, Compiler, CompilerConfig, EntryAssumptions, MemoryBackend, SegmentDefaultSize};
+    /// let config = CompilerConfig::new(EntryAssumptions::FLAT32, MemoryBackend::HostPageTable);
+    /// let compiler = Compiler::new(config);
     /// let code_default_size = SegmentDefaultSize::Bits32;
     /// let module = compiler.compile_blocks(&[
     ///     BlockSnapshot {
